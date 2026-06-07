@@ -1,0 +1,20 @@
+{
+  "name": "eds-mvp-pwa",
+  "version": "0.8.5.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "prebuild": "node scripts/bump-version.js",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "6.0.2",
+    "vite": "8.0.14",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "typescript": "6.0.3"
+  },
+  "devDependencies": {}
+}

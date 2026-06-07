@@ -1,0 +1,16 @@
+{
+  "name": "ED's MVP",
+  "short_name": "ED MVP",
+  "description": "Personal portfolio dashboard powered by Google Sheets",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
