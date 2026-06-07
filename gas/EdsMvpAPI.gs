@@ -128,6 +128,14 @@ function edApi_handleRequest_(method, e) {
       case "refreshKrxPricesToMainSheet":
         return edApi_json_(edApi_success_(action, refreshKrxPricesToMainSheetFromKis()));
 
+       case "fetchSingleChartData":
+        return edApi_json_(
+          edApi_success_(
+            action,
+            fetchSingleChartData(request.payload)
+          )
+        );
+
        case "getChartData":
         return edApi_json_(
           edApi_success_(

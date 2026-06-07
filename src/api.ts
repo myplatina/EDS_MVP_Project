@@ -356,6 +356,14 @@ export class EdsApi {
     return data;
   }
 
+  async fetchSingleChartData(payload: Omit<ChartPayload, 'interval'>) {
+    const data = await this.post<{ D: ChartData; W: ChartData; M: ChartData; asset_id: string }>('fetchSingleChartData', payload);
+    if (data.D) writeChartCache(this.config.apiUrl, { ...payload, interval: 'D' }, data.D);
+    if (data.W) writeChartCache(this.config.apiUrl, { ...payload, interval: 'W' }, data.W);
+    if (data.M) writeChartCache(this.config.apiUrl, { ...payload, interval: 'M' }, data.M);
+    return data;
+  }
+
   async refreshChartData(payload: ChartPayload) {
     const data = await this.post<ChartData>('refreshChartData', { ...payload, force: true });
     writeChartCache(this.config.apiUrl, payload, data);

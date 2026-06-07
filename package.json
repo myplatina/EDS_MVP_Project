@@ -1,6 +1,6 @@
 {
   "name": "eds-mvp-pwa",
-  "version": "0.8.6",
+  "version": "0.8.61",
   "private": true,
   "type": "module",
   "scripts": {

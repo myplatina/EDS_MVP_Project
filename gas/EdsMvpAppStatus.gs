@@ -12,8 +12,10 @@
  * 4) 웹앱 새 버전 배포
  *******************************************************/
 
+const ED_MVP_VERSION_TAG = "ED's MVP - App Status API Helper v0.8.6";
+
 const ED_MVP_APP_STATUS = {
-  appsScriptVersion: '0.7.4',
+  appsScriptVersion: ED_MVP_VERSION_TAG.split(' v')[1],
   appName: "ED's MVP",
   watchedSheets: [
     '2. 종목현황',

@@ -248,6 +248,46 @@ function getChartData(payload) {
 }
 
 /**
+ * 특정 asset_id의 일/주/월봉(D/W/M) 3가지 차트 데이터를 한 번에 조회하여 반환
+ * payload: { asset_id, limitD, limitW, limitM }
+ */
+function fetchSingleChartData(payload) {
+  const assetId = String(payload && payload.asset_id || "").trim();
+  if (!assetId) throw new Error("asset_id가 필요합니다.");
+
+  const limitD = Number(payload && payload.limitD || ED_MVP_CHART.defaultLimit["D"] || 120);
+  const limitW = Number(payload && payload.limitW || ED_MVP_CHART.defaultLimit["W"] || 104);
+  const limitM = Number(payload && payload.limitM || ED_MVP_CHART.defaultLimit["M"] || 60);
+
+  // 시트를 딱 한 번만 읽음
+  const allRows = edChart_readSheetAsObjects_(ED_MVP_CHART.sheets.chartPrices)
+    .filter((row) => String(row.asset_id || "") === assetId)
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+
+  const mapToItem = (row) => ({
+    date: row.date,
+    open: edChart_num_(row.open),
+    high: edChart_num_(row.high),
+    low: edChart_num_(row.low),
+    close: edChart_num_(row.close),
+    volume: edChart_num_(row.volume),
+    source: row.source,
+    fetched_at: row.fetched_at,
+  });
+
+  const rowsD = allRows.filter((r) => String(r.interval || "") === "D").slice(-limitD).map(mapToItem);
+  const rowsW = allRows.filter((r) => String(r.interval || "") === "W").slice(-limitW).map(mapToItem);
+  const rowsM = allRows.filter((r) => String(r.interval || "") === "M").slice(-limitM).map(mapToItem);
+
+  return {
+    asset_id: assetId,
+    D: { interval: "D", count: rowsD.length, items: rowsD },
+    W: { interval: "W", count: rowsW.length, items: rowsW },
+    M: { interval: "M", count: rowsM.length, items: rowsM },
+  };
+}
+
+/**
  * API용: 캐시가 비어 있으면 KIS 갱신 후 반환
  * payload: { asset_id, ticker, market, interval, limit, force }
  */

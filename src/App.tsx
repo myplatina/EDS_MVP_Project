@@ -1521,12 +1521,23 @@ function KisLineChart({ item, api }: { item: PortfolioItem; api: EdsApi }) {
     setStatus('loading');
     setChartError('');
     try {
-      const data = force
-        ? await api.refreshChartData({ asset_id: item.asset_id, ticker, market: 'KRX', interval: nextInterval })
-        : await api.getChartData({ asset_id: item.asset_id, ticker, market: 'KRX', interval: nextInterval });
-      setChartCache((prev) => ({ ...prev, [nextInterval]: data }));
-      setChartData(data);
-      setLastLoadSource(force ? 'network' : 'local');
+      if (force || Object.keys(chartCache).length === 0) {
+        // 단일 엔드포인트로 3가지 주기(D,W,M) 데이터를 모두 가져옴
+        const multiData = await api.fetchSingleChartData({ asset_id: item.asset_id, ticker, market: 'KRX' });
+        setChartCache({
+          D: multiData.D,
+          W: multiData.W,
+          M: multiData.M,
+        });
+        setChartData(multiData[nextInterval]);
+        setLastLoadSource(force ? 'network' : 'local');
+      } else {
+        // 이미 3가지 주기를 가져온 상태 (여기 도달할 일은 거의 없음)
+        const data = await api.getChartData({ asset_id: item.asset_id, ticker, market: 'KRX', interval: nextInterval });
+        setChartCache((prev) => ({ ...prev, [nextInterval]: data }));
+        setChartData(data);
+        setLastLoadSource('local');
+      }
       setStatus('ready');
     } catch (e) {
       setChartError(e instanceof Error ? e.message : String(e));
@@ -1573,7 +1584,12 @@ function KisLineChart({ item, api }: { item: PortfolioItem; api: EdsApi }) {
       </div>
 
       <div className="kis-chart-frame">
-        {status === 'loading' && <div className="tv-overlay muted small">KIS 차트 데이터 로딩 중...</div>}
+        {status === 'loading' && (
+          <div className="tv-overlay muted small">
+            <div className="loading-spinner"></div>
+            <div>KIS 차트 데이터 로딩 중...</div>
+          </div>
+        )}
         {status === 'error' && (
           <div className="tv-overlay tv-error">
             <strong>차트를 불러오지 못했습니다.</strong>
