@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - KRX Daily Chart Bulk Refresh v0.8.6
+ * ED's MVP - KRX Daily Chart Bulk Refresh v0.8.61
  *
  * 목적:
  * - PWA 설정 탭의 `국내 일봉 차트 갱신(KIS)` 버튼용 백엔드

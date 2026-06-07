@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - Chart Data Cache + KIS Integration v0.8.6
+ * ED's MVP - Chart Data Cache + KIS Integration v0.8.61
  *
  * 목적:
  * - 한국투자증권 Open API로 국내 ETF/주식 일/주/月 차트 데이터를 조회
@@ -258,6 +258,7 @@ function fetchSingleChartData(payload) {
   const limitD = Number(payload && payload.limitD || ED_MVP_CHART.defaultLimit["D"] || 120);
   const limitW = Number(payload && payload.limitW || ED_MVP_CHART.defaultLimit["W"] || 104);
   const limitM = Number(payload && payload.limitM || ED_MVP_CHART.defaultLimit["M"] || 60);
+  const force = Boolean(payload && payload.force);
 
   // 시트를 딱 한 번만 읽음
   const allRows = edChart_readSheetAsObjects_(ED_MVP_CHART.sheets.chartPrices)
@@ -275,9 +276,123 @@ function fetchSingleChartData(payload) {
     fetched_at: row.fetched_at,
   });
 
-  const rowsD = allRows.filter((r) => String(r.interval || "") === "D").slice(-limitD).map(mapToItem);
-  const rowsW = allRows.filter((r) => String(r.interval || "") === "W").slice(-limitW).map(mapToItem);
-  const rowsM = allRows.filter((r) => String(r.interval || "") === "M").slice(-limitM).map(mapToItem);
+  let rowsD = allRows.filter((r) => String(r.interval || "") === "D").slice(-limitD).map(mapToItem);
+  let rowsW = allRows.filter((r) => String(r.interval || "") === "W").slice(-limitW).map(mapToItem);
+  let rowsM = allRows.filter((r) => String(r.interval || "") === "M").slice(-limitM).map(mapToItem);
+
+  const market = edChart_marketFromAssetId_(assetId);
+  const ticker = edChart_normalizeTicker_(edChart_tickerFromAssetId_(assetId));
+  const isKrx = (market === "KRX" && /^[0-9A-Z]{6}$/.test(ticker));
+
+  const intervalsToFetch = [];
+  if (isKrx) {
+    if (force) {
+      intervalsToFetch.push("D", "W", "M");
+    } else {
+      if (rowsD.length === 0) intervalsToFetch.push("D");
+      if (rowsW.length === 0) intervalsToFetch.push("W");
+      if (rowsM.length === 0) intervalsToFetch.push("M");
+    }
+  }
+
+  if (intervalsToFetch.length > 0) {
+    const fetchResults = {};
+    const today = new Date();
+    const end = edKis_formatDate_(today);
+    const token = edKis_getAccessToken_();
+    const props = PropertiesService.getScriptProperties();
+    const appKey = props.getProperty(ED_KIS_HELPER.properties.appKey);
+    const appSecret = props.getProperty(ED_KIS_HELPER.properties.appSecret);
+
+    if (!appKey || !appSecret) {
+      throw new Error("KIS appkey/appsecret이 없습니다. setupKisCredentials()를 먼저 실행하세요.");
+    }
+
+    // 1. UrlFetchApp.fetchAll을 사용한 병렬 조회 시도
+    try {
+      const requests = intervalsToFetch.map((intv) => {
+        const limit = intv === "D" ? limitD : (intv === "W" ? limitW : limitM);
+        const start = edKis_formatDate_(edKis_addDays_(today, -edKis_periodLookbackDays_(intv, limit)));
+        const query = {
+          FID_COND_MRKT_DIV_CODE: "J",
+          FID_INPUT_ISCD: ticker,
+          FID_INPUT_DATE_1: start,
+          FID_INPUT_DATE_2: end,
+          FID_PERIOD_DIV_CODE: intv,
+          FID_ORG_ADJ_PRC: "0",
+        };
+        const url = edKis_getBaseUrl_() + ED_KIS_HELPER.chartPath + "?" + edKis_toQueryString_(query);
+        return {
+          url: url,
+          method: "get",
+          muteHttpExceptions: true,
+          headers: {
+            authorization: "Bearer " + token,
+            appkey: appKey,
+            appsecret: appSecret,
+            tr_id: ED_KIS_HELPER.chartTrId,
+            custtype: "P",
+          }
+        };
+      });
+
+      const responses = UrlFetchApp.fetchAll(requests);
+      intervalsToFetch.forEach((intv, index) => {
+        const res = responses[index];
+        const status = res.getResponseCode();
+        const text = res.getContentText();
+        let json;
+        try {
+          json = JSON.parse(text);
+        } catch (e) {
+          throw new Error(`JSON parsing failed. HTTP=${status}`);
+        }
+        if (status < 200 || status >= 300 || String(json.rt_cd || "") !== "0") {
+          throw new Error(`API error. rt_cd=${json.rt_cd}, msg=${json.msg1}`);
+        }
+        const rawItems = Array.isArray(json.output2) ? json.output2 : [];
+        const items = rawItems
+          .map((row) => edKis_normalizeChartRow_(row))
+          .filter((row) => row.date);
+        items.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+        
+        const limit = intv === "D" ? limitD : (intv === "W" ? limitW : limitM);
+        fetchResults[intv] = items.slice(-limit);
+      });
+    } catch (parallelError) {
+      // 2. 병렬 조회 실패 시 순차 조회 및 백오프 재시도 폴백
+      Logger.log(`[fetchSingleChartData] Parallel fetch failed: ${parallelError.message}. Falling back to sequential...`);
+      intervalsToFetch.forEach((intv) => {
+        const limit = intv === "D" ? limitD : (intv === "W" ? limitW : limitM);
+        const start = edKis_formatDate_(edKis_addDays_(today, -edKis_periodLookbackDays_(intv, limit)));
+        const result = edChart_fetchKisChartWithRetry_(ticker, intv, start, end);
+        const items = result.items.slice(-limit);
+        fetchResults[intv] = items;
+        Utilities.sleep(500); // 500ms delay to prevent rate limit
+      });
+    }
+
+    // 시트 벌크 치환 저장
+    edChart_replaceChartRowsMultiple_(assetId, ticker, fetchResults, ED_MVP_CHART.source.kis);
+
+    // 반환 데이터 메모리 업데이트
+    const now = new Date();
+    const nowStr = edChart_normalizeValue_(now);
+    const mapFetchedToItem = (item) => ({
+      date: item.date,
+      open: item.open,
+      high: item.high,
+      low: item.low,
+      close: item.close,
+      volume: item.volume,
+      source: ED_MVP_CHART.source.kis,
+      fetched_at: nowStr,
+    });
+
+    if (fetchResults["D"]) rowsD = fetchResults["D"].map(mapFetchedToItem);
+    if (fetchResults["W"]) rowsW = fetchResults["W"].map(mapFetchedToItem);
+    if (fetchResults["M"]) rowsM = fetchResults["M"].map(mapFetchedToItem);
+  }
 
   return {
     asset_id: assetId,
@@ -285,6 +400,87 @@ function fetchSingleChartData(payload) {
     W: { interval: "W", count: rowsW.length, items: rowsW },
     M: { interval: "M", count: rowsM.length, items: rowsM },
   };
+}
+
+/**
+ * 복수 인터벌의 차트 데이터를 단일 트랜잭션으로 시트에 벌크 치환하여 캐시 저장
+ */
+function edChart_replaceChartRowsMultiple_(assetId, ticker, intervalItemsMap, source) {
+  setupChartPricesSheet();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(ED_MVP_CHART.sheets.chartPrices);
+  if (!sheet) throw new Error("App_ChartPrices 시트를 찾을 수 없습니다.");
+
+  const lastRow = sheet.getLastRow();
+  const headers = [
+    "chart_id",
+    "asset_id",
+    "ticker",
+    "interval",
+    "date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "source",
+    "fetched_at",
+    "created_at",
+    "updated_at",
+  ];
+
+  let keptRows = [];
+  const intervalsToReplace = Object.keys(intervalItemsMap);
+
+  if (lastRow >= 2) {
+    const values = sheet.getRange(1, 1, lastRow, headers.length).getValues();
+    const existingHeader = values[0];
+    const assetCol = existingHeader.indexOf("asset_id");
+    const intervalCol = existingHeader.indexOf("interval");
+
+    if (assetCol < 0 || intervalCol < 0) {
+      throw new Error("App_ChartPrices 헤더 오류: asset_id 또는 interval 열이 없습니다.");
+    }
+
+    keptRows = values.slice(1).filter((row) => {
+      const rowAssetId = String(row[assetCol] || "");
+      const rowInterval = String(row[intervalCol] || "");
+
+      // 교체 대상에 해당하는 행들은 필터링하여 제외 (삭제)
+      if (rowAssetId === assetId && intervalsToReplace.indexOf(rowInterval) >= 0) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  const now = new Date();
+  const newRows = [];
+  intervalsToReplace.forEach((interval) => {
+    const items = intervalItemsMap[interval] || [];
+    items.forEach((item) => {
+      newRows.push([
+        `${assetId}_${interval}_${item.date}`,
+        assetId,
+        ticker,
+        interval,
+        item.date,
+        item.open,
+        item.high,
+        item.low,
+        item.close,
+        item.volume,
+        source,
+        now,
+        now,
+        now,
+      ]);
+    });
+  });
+
+  const output = [headers].concat(keptRows).concat(newRows);
+  sheet.clear();
+  sheet.getRange(1, 1, output.length, headers.length).setValues(output);
 }
 
 /**

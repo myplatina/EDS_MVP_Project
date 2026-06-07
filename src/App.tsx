@@ -1523,7 +1523,7 @@ function KisLineChart({ item, api }: { item: PortfolioItem; api: EdsApi }) {
     try {
       if (force || Object.keys(chartCache).length === 0) {
         // 단일 엔드포인트로 3가지 주기(D,W,M) 데이터를 모두 가져옴
-        const multiData = await api.fetchSingleChartData({ asset_id: item.asset_id, ticker, market: 'KRX' });
+        const multiData = await api.fetchSingleChartData({ asset_id: item.asset_id, ticker, market: 'KRX', force });
         setChartCache({
           D: multiData.D,
           W: multiData.W,

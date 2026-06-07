@@ -110,7 +110,7 @@ function GET_UPBIT_REALTIME(ticker, type) {
 
 
   /*******************************************************
- * ED's MVP - Google Sheets Initial Setup Script v0.8.6
+ * ED's MVP - Google Sheets Initial Setup Script v0.8.61
  *
  * 목적:
  * - 기존 "2.종목현황" 시트는 수정하지 않음

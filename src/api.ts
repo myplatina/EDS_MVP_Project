@@ -1,6 +1,6 @@
 import type { ApiResponse, AppConfig, AppStatus, ChartData, DashboardData, DividendDashboard, DividendRecord, HoldingRow, PortfolioOutputRow, PriceRefreshResult, RefreshLogs } from './types';
 
-export const APP_VERSION = '0.8.6';
+export const APP_VERSION = '0.8.61';
 
 const DEFAULT_API_URL = import.meta.env.VITE_EDS_API_URL || '';
 const DEFAULT_API_TOKEN = '';
@@ -356,11 +356,12 @@ export class EdsApi {
     return data;
   }
 
-  async fetchSingleChartData(payload: Omit<ChartPayload, 'interval'>) {
+  async fetchSingleChartData(payload: Omit<ChartPayload, 'interval'> & { force?: boolean }) {
     const data = await this.post<{ D: ChartData; W: ChartData; M: ChartData; asset_id: string }>('fetchSingleChartData', payload);
-    if (data.D) writeChartCache(this.config.apiUrl, { ...payload, interval: 'D' }, data.D);
-    if (data.W) writeChartCache(this.config.apiUrl, { ...payload, interval: 'W' }, data.W);
-    if (data.M) writeChartCache(this.config.apiUrl, { ...payload, interval: 'M' }, data.M);
+    const { force, ...rest } = payload;
+    if (data.D) writeChartCache(this.config.apiUrl, { ...rest, interval: 'D' }, data.D);
+    if (data.W) writeChartCache(this.config.apiUrl, { ...rest, interval: 'W' }, data.W);
+    if (data.M) writeChartCache(this.config.apiUrl, { ...rest, interval: 'M' }, data.M);
     return data;
   }
 

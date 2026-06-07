@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - App to Main Sheet Sync Preview v0.8.6
+ * ED's MVP - App to Main Sheet Sync Preview v0.8.61
  *
  * 목적:
  * - App_Holdings 데이터를 기존 "2. 종목현황"에 반영하기 전 미리보기 생성
