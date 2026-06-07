@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - Chart Data Cache + KIS Integration v0.8.5.2
+ * ED's MVP - Chart Data Cache + KIS Integration v0.8.6
  *
  * 목적:
  * - 한국투자증권 Open API로 국내 ETF/주식 일/주/月 차트 데이터를 조회

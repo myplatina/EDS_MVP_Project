@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { APP_VERSION, EdsApi, clearAllLocalAppData, clearChartCaches, clearConfig, clearTokenOnly, getAutoPriceRefreshIntervalMinutes, getAutoPriceRefreshMarketOnly, getRefreshLogs, loadConfig, readCachedChartDataForAsset, saveConfig, setAutoPriceRefreshIntervalMinutes, setAutoPriceRefreshMarketOnly } from './api';
 import type { AccountSummary, AppConfig, AppStatus, ChartData, ChartPoint, DashboardData, DividendDashboard, HoldingRow, PortfolioItem, RefreshLogs } from './types';
-import { buildHoldingKey, formatKRW, formatNumber, formatPercent, formatSignedKRW, formatSignedPercent, returnClass, signedClass, sortByValuationDesc } from './utils';
+import { buildHoldingKey, computeDeficitCandidates, computeRiskFlags, formatKRW, formatNumber, formatPercent, formatSignedKRW, formatSignedPercent, returnClass, signedClass, sortByValuationDesc } from './utils';
+import type { DeficitCandidate, RiskFlag } from './utils';
 
 type Tab = 'home' | 'portfolio' | 'rebalance' | 'history' | 'settings';
 
@@ -376,6 +377,10 @@ function App() {
             setAccountFilter={setAccountFilter}
             onAccountDetail={(account) => setDetail({ kind: 'account', account })}
             onHoldingDetail={(item) => setDetail({ kind: 'holding', item })}
+            onRefreshPrices={handleRefreshKrxPrices}
+            onRefreshDailyCharts={handleRefreshKrxDailyCharts}
+            refreshLogs={refreshLogs}
+            loading={loading}
           />
         )}
 
@@ -537,20 +542,46 @@ function AccountFilter({ dashboard, value, onChange }: { dashboard: DashboardDat
   );
 }
 
-function HomePage({ dashboard, summary, accountFilter, setAccountFilter, onAccountDetail, onHoldingDetail }: {
+function HomePage({ dashboard, summary, accountFilter, setAccountFilter, onAccountDetail, onHoldingDetail, onRefreshPrices, onRefreshDailyCharts, refreshLogs, loading }: {
   dashboard: DashboardData;
   summary: DashboardData['summary'];
   accountFilter: string;
   setAccountFilter: (v: string) => void;
   onAccountDetail: (account: AccountSummary) => void;
   onHoldingDetail: (item: PortfolioItem) => void;
+  onRefreshPrices: () => void;
+  onRefreshDailyCharts: () => void;
+  refreshLogs: RefreshLogs;
+  loading: boolean;
 }) {
+  // 위험 플래그 + 부족 종목 연산
+  const riskFlags = useMemo(() => computeRiskFlags(dashboard.output), [dashboard.output]);
+  const deficitCandidates = useMemo(() => computeDeficitCandidates(dashboard.output), [dashboard.output]);
+
   return (
     <section className="page-stack">
+      {/* Quick Action Bar */}
+      <QuickActionBar
+        onRefreshPrices={onRefreshPrices}
+        onRefreshDailyCharts={onRefreshDailyCharts}
+        refreshLogs={refreshLogs}
+        loading={loading}
+      />
+
+      {/* Deficit Action Cards */}
+      {deficitCandidates.length > 0 && (
+        <section className="card deficit-action-card">
+          <div className="section-title">📌 추가 매수 후보 (비중 부족 -30% 초과)</div>
+          {deficitCandidates.slice(0, 3).map((c) => (
+            <DeficitCard key={`${c.item.account_id}__${c.item.asset_id}`} candidate={c} onDetail={() => onHoldingDetail(c.item)} />
+          ))}
+        </section>
+      )}
+
       <AccountFilter dashboard={dashboard} value={accountFilter} onChange={setAccountFilter} />
 
       <section className="hero-card">
-        <div className="muted">총 평가액</div>
+        <div className="muted">종 평가액</div>
         <div className="hero-value">{formatKRW(summary.total_valuation)}</div>
         <div className="summary-grid">
           <Metric label="투자원금" value={formatKRW(summary.total_invested)} />
@@ -582,9 +613,68 @@ function HomePage({ dashboard, summary, accountFilter, setAccountFilter, onAccou
 
       <section className="card">
         <div className="section-title">상위 보유 종목</div>
-        <HoldingList rows={dashboard.top_holdings} compact onDetail={onHoldingDetail} />
+        <HoldingList rows={dashboard.top_holdings} compact onDetail={onHoldingDetail} riskFlags={riskFlags} />
       </section>
     </section>
+  );
+}
+
+/** Quick Action Bar 컴포넌트 — 홈 상단에 배치되는 빠른 액션 바 */
+function QuickActionBar({ onRefreshPrices, onRefreshDailyCharts, refreshLogs, loading }: {
+  onRefreshPrices: () => void;
+  onRefreshDailyCharts: () => void;
+  refreshLogs: RefreshLogs;
+  loading: boolean;
+}) {
+  const priceUpdated = refreshLogs.refreshKrxPrices ? formatLogTime(refreshLogs.refreshKrxPrices) : '-';
+  const chartUpdated = refreshLogs.refreshKrxDailyCharts ? formatLogTime(refreshLogs.refreshKrxDailyCharts) : '-';
+
+  return (
+    <section className="quick-action-bar">
+      <div className="quick-action-item">
+        <button
+          className="quick-action-btn"
+          onClick={onRefreshPrices}
+          disabled={loading}
+          title="KIS 현재가 갱신"
+        >
+          <span className="quick-action-icon">⚡</span>
+          <span>현재가 갱신</span>
+        </button>
+        <div className="quick-action-time">마지막 갱신: {priceUpdated}</div>
+      </div>
+      <div className="quick-action-item">
+        <button
+          className="quick-action-btn"
+          onClick={onRefreshDailyCharts}
+          disabled={loading}
+          title="일별 차트 배치 갱신"
+        >
+          <span className="quick-action-icon">📊</span>
+          <span>차트 갱신</span>
+        </button>
+        <div className="quick-action-time">마지막 갱신: {chartUpdated}</div>
+      </div>
+    </section>
+  );
+}
+
+/** 부족 종목 Action Card 컴포넌트 */
+function DeficitCard({ candidate, onDetail }: { candidate: DeficitCandidate; onDetail: () => void }) {
+  const deviationPct = (candidate.deviationRate * 100).toFixed(1);
+  return (
+    <button className="deficit-card-row" onClick={onDetail}>
+      <div className="deficit-card-info">
+        <span className="deficit-badge">Deficit</span>
+        <strong className="deficit-name">{candidate.item.asset_name}</strong>
+        <span className="deficit-account muted">{candidate.item.account_name}</span>
+      </div>
+      <div className="deficit-card-numbers">
+        <span className="deficit-amount">+{formatKRW(candidate.gapAmount)}</span>
+        <span className="deficit-deviation negative">비중 괴리 {deviationPct}%</span>
+      </div>
+      <div className="deficit-card-action muted small">추가 매수 후보 →</div>
+    </button>
   );
 }
 
@@ -607,34 +697,48 @@ function PortfolioPage({ dashboard, items, accountFilter, setAccountFilter, onEd
   );
 }
 
-function HoldingList({ rows, compact = false, onEdit, onDetail }: { rows: PortfolioItem[]; compact?: boolean; onEdit?: (item: PortfolioItem) => void; onDetail?: (item: PortfolioItem) => void }) {
+function HoldingList({ rows, compact = false, onEdit, onDetail, riskFlags }: {
+  rows: PortfolioItem[];
+  compact?: boolean;
+  onEdit?: (item: PortfolioItem) => void;
+  onDetail?: (item: PortfolioItem) => void;
+  riskFlags?: Map<string, Set<RiskFlag>>;
+}) {
   return (
     <div className="holding-list">
-      {rows.map((row) => (
-        <article key={`${row.account_id}-${row.asset_id}`} className="holding-card clickable-card" onClick={() => onDetail?.(row)}>
-          <div className="holding-main">
-            <div>
-              <h3>{row.asset_name}</h3>
-              <div className="muted small">{row.account_name} · {row.ticker}</div>
+      {rows.map((row) => {
+        const flags = riskFlags?.get(buildHoldingKey(row));
+        return (
+          <article key={`${row.account_id}-${row.asset_id}`} className="holding-card clickable-card" onClick={() => onDetail?.(row)}>
+            <div className="holding-main">
+              <div>
+                <h3>
+                  {row.asset_name}
+                  {flags?.has('DROP_WARNING') && <span className="risk-dot risk-dot--drop" title="손실 확대 (-20% 이하)">●</span>}
+                  {flags?.has('CONCENTRATION_WARNING') && <span className="risk-dot risk-dot--concentration" title="비중 과다 (전체 15% 초과)">●</span>}
+                  {flags?.has('WEIGHT_DEVIATION') && <span className="risk-dot risk-dot--deviation" title="비중 괴리 (목표 대비 ±30% 이상)">●</span>}
+                </h3>
+                <div className="muted small">{row.account_name} · {row.ticker}</div>
+              </div>
+              <div className="right">
+                <strong>{formatKRW(row.valuation_amount)}</strong>
+                <span className={returnClass(row.profit_rate)}>{formatPercent(row.profit_rate)}</span>
+              </div>
             </div>
-            <div className="right">
-              <strong>{formatKRW(row.valuation_amount)}</strong>
-              <span className={returnClass(row.profit_rate)}>{formatPercent(row.profit_rate)}</span>
-            </div>
-          </div>
-          {!compact && (
-            <div className="holding-detail">
-              <Metric label="수량" value={formatNumber(row.quantity, 4)} />
-              <Metric label="평단" value={formatKRW(row.avg_price)} />
-              <Metric label="현재가" value={formatKRW(row.price)} />
-              <Metric label="계좌비중" value={formatPercent(row.account_weight)} />
-              <Metric label="목표비중" value={formatPercent(row.target_weight_account)} />
-              <Metric label="목표 대비" value={formatSignedKRW(targetPositionGapAmount(row))} className={signedClass(targetPositionGapAmount(row))} />
-            </div>
-          )}
-          {!compact && onEdit && <button className="full-width ghost" onClick={(event) => { event.stopPropagation(); onEdit(row); }}>수정</button>}
-        </article>
-      ))}
+            {!compact && (
+              <div className="holding-detail">
+                <Metric label="수량" value={formatNumber(row.quantity, 4)} />
+                <Metric label="평단" value={formatKRW(row.avg_price)} />
+                <Metric label="현재가" value={formatKRW(row.price)} />
+                <Metric label="계좌비중" value={formatPercent(row.account_weight)} />
+                <Metric label="목표비중" value={formatPercent(row.target_weight_account)} />
+                <Metric label="목표 대비" value={formatSignedKRW(targetPositionGapAmount(row))} className={signedClass(targetPositionGapAmount(row))} />
+              </div>
+            )}
+            {!compact && onEdit && <button className="full-width ghost" onClick={(event) => { event.stopPropagation(); onEdit(row); }}>수정</button>}
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -2133,25 +2237,11 @@ function SettingsPage({
     setToken(config.token);
   }, [config.apiUrl, config.token]);
 
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
   return (
     <section className="page-stack">
-      <section className="card form-card">
-        <div className="section-title">버전/상태</div>
-        <div className="status-grid">
-          <div className="status-pill">PWA v{APP_VERSION}</div>
-          <div className="status-pill">Apps Script {appStatus?.apps_script_version ? `v${appStatus.apps_script_version}` : '미확인'}</div>
-          <div className="status-pill">실행 모드 {isStandalone ? '설치 앱' : '브라우저'}</div>
-          <div className="status-pill">Token {config.token ? '저장됨' : '미설정'}</div>
-        </div>
-        <div className="kv-list">
-          <div><span>API URL</span><strong>{config.apiUrl ? maskApiUrl(config.apiUrl) : '미설정'}</strong></div>
-          <div><span>Spreadsheet</span><strong>{appStatus?.spreadsheet_name || '-'}</strong></div>
-          <div><span>API 시각</span><strong>{formatLogTime(appStatus?.api_time)}</strong></div>
-        </div>
-        <button className="ghost" onClick={onFetchStatus}>상태 확인</button>
-        <p className="muted small">Apps Script 버전은 `getAppStatus` action이 배포된 뒤 표시된다. 미배포 상태라면 오류 메시지에 action 미배포로 표시된다.</p>
-      </section>
-
+      {/* === 항상 노출: API 설정 === */}
       <section className="card form-card">
         <div className="section-title">API 설정</div>
         <label>
@@ -2168,18 +2258,7 @@ function SettingsPage({
         </div>
       </section>
 
-      <section className="card action-card">
-        <div className="section-title">데이터 새로고침 로그</div>
-        <div className="kv-list">
-          <div><span>홈/포트폴리오</span><strong>{formatLogTime(refreshLogs.getDashboard)}</strong></div>
-          <div><span>배당 대시보드</span><strong>{formatLogTime(refreshLogs.getDividendDashboard)}</strong></div>
-          <div><span>개별 종목 차트 조회</span><strong>{formatLogTime(refreshLogs.getChartData)}</strong></div>
-          <div><span>종목 차트 일괄 갱신</span><strong>{formatLogTime(refreshLogs.refreshKrxDailyCharts)}</strong></div>
-          <div><span>현재가</span><strong>{formatLogTime(refreshLogs.refreshKrxPrices)}</strong></div>
-          <div><span>원본 시트 가격 반영</span><strong>{formatLogTime(refreshLogs.refreshKrxPricesToMainSheet)}</strong></div>
-        </div>
-      </section>
-
+      {/* === 항상 노출: 현재가 자동 갱신 === */}
       <section className="card action-card">
         <div className="section-title">현재가 자동 갱신</div>
         <div className="segmented-control wrap">
@@ -2207,6 +2286,7 @@ function SettingsPage({
         <p className="muted small">앱이 열려 있고 화면이 활성 상태일 때만 App_Prices/App_Output을 갱신한다. 원본 `2. 종목현황`은 자동으로 수정하지 않는다.</p>
       </section>
 
+      {/* === 항상 노출: 연결/동기화 === */}
       <section className="card action-card">
         <div className="section-title">연결/동기화</div>
         <button className="ghost" onClick={onPing}>ping 테스트</button>
@@ -2244,6 +2324,7 @@ function SettingsPage({
         </div>
       </section>
 
+      {/* === 항상 노출: 캐시/설정 삭제 === */}
       <section className="card action-card">
         <div className="section-title">캐시/설정 삭제</div>
         <button className="ghost" onClick={onClearChartCache}>차트 캐시 삭제</button>
@@ -2252,16 +2333,61 @@ function SettingsPage({
         <p className="muted small">차트 캐시는 브라우저에 저장된 일/주/月 차트 데이터다. 삭제해도 원장/시트 데이터는 삭제되지 않는다.</p>
       </section>
 
-      <section className="card action-card">
-        <div className="section-title">PWA 설치</div>
-        <p className="muted small">
-          {isStandalone
-            ? '현재 앱 설치 모드로 실행 중이다.'
-            : '현재 브라우저 탭 모드다. 안드로이드 크롬에서는 메뉴 > 홈 화면에 추가로 설치할 수 있다.'}
-        </p>
-        <button className="ghost" onClick={onInstall} disabled={isStandalone && !installAvailable}>
-          {installAvailable ? '앱 설치하기' : '설치 안내 보기'}
+      {/* === Advanced Settings 아코디언 (기본 접힘) === */}
+      <section className="card advanced-settings-card">
+        <button
+          className="advanced-settings-toggle"
+          onClick={() => setAdvancedOpen((prev) => !prev)}
+          aria-expanded={advancedOpen}
+        >
+          <span>⚙️ Advanced Settings</span>
+          <span className="advanced-settings-chevron">{advancedOpen ? '▲' : '▼'}</span>
         </button>
+
+        {advancedOpen && (
+          <div className="advanced-settings-body">
+            <section className="card form-card">
+              <div className="section-title">버전/상태</div>
+              <div className="status-grid">
+                <div className="status-pill">PWA v{APP_VERSION}</div>
+                <div className="status-pill">Apps Script {appStatus?.apps_script_version ? `v${appStatus.apps_script_version}` : '미확인'}</div>
+                <div className="status-pill">실행 모드 {isStandalone ? '설치 앱' : '브라우저'}</div>
+                <div className="status-pill">Token {config.token ? '저장됨' : '미설정'}</div>
+              </div>
+              <div className="kv-list">
+                <div><span>API URL</span><strong>{config.apiUrl ? maskApiUrl(config.apiUrl) : '미설정'}</strong></div>
+                <div><span>Spreadsheet</span><strong>{appStatus?.spreadsheet_name || '-'}</strong></div>
+                <div><span>API 시각</span><strong>{formatLogTime(appStatus?.api_time)}</strong></div>
+              </div>
+              <button className="ghost" onClick={onFetchStatus}>상태 확인</button>
+              <p className="muted small">Apps Script 버전은 `getAppStatus` action이 배포된 뒤 표시된다.</p>
+            </section>
+
+            <section className="card action-card">
+              <div className="section-title">데이터 새로고침 로그</div>
+              <div className="kv-list">
+                <div><span>홈/포트폴리오</span><strong>{formatLogTime(refreshLogs.getDashboard)}</strong></div>
+                <div><span>배당 대시보드</span><strong>{formatLogTime(refreshLogs.getDividendDashboard)}</strong></div>
+                <div><span>개별 종목 차트 조회</span><strong>{formatLogTime(refreshLogs.getChartData)}</strong></div>
+                <div><span>종목 차트 일괄 갱신</span><strong>{formatLogTime(refreshLogs.refreshKrxDailyCharts)}</strong></div>
+                <div><span>현재가</span><strong>{formatLogTime(refreshLogs.refreshKrxPrices)}</strong></div>
+                <div><span>원본 시트 가격 반영</span><strong>{formatLogTime(refreshLogs.refreshKrxPricesToMainSheet)}</strong></div>
+              </div>
+            </section>
+
+            <section className="card action-card">
+              <div className="section-title">PWA 설치</div>
+              <p className="muted small">
+                {isStandalone
+                  ? '현재 앱 설치 모드로 실행 중이다.'
+                  : '현재 브라우저 탭 모드다. 안드로이드 크롬에서는 메뉴 > 홈 화면에 추가로 설치할 수 있다.'}
+              </p>
+              <button className="ghost" onClick={onInstall} disabled={isStandalone && !installAvailable}>
+                {installAvailable ? '앱 설치하기' : '설치 안내 보기'}
+              </button>
+            </section>
+          </div>
+        )}
       </section>
     </section>
   );

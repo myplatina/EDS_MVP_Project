@@ -1,9 +1,11 @@
 import type { ApiResponse, AppConfig, AppStatus, ChartData, DashboardData, DividendDashboard, DividendRecord, HoldingRow, PortfolioOutputRow, PriceRefreshResult, RefreshLogs } from './types';
 
-export const APP_VERSION = '0.8.5.2';
+export const APP_VERSION = '0.8.6';
 
 const DEFAULT_API_URL = import.meta.env.VITE_EDS_API_URL || '';
 const DEFAULT_API_TOKEN = '';
+// GAS 웹앱 보안 인터셉터용 앱 토큰 (환경변수 VITE_EDS_APP_TOKEN으로 배포 시 주입)
+const APP_SECURITY_TOKEN = import.meta.env.VITE_EDS_APP_TOKEN || '';
 
 const STORAGE_KEY = 'eds_mvp_config';
 const REFRESH_LOG_KEY = 'eds_mvp_refresh_logs_v1';
@@ -245,6 +247,8 @@ export class EdsApi {
     const url = new URL(this.config.apiUrl);
     url.searchParams.set('action', action);
     if (action !== 'ping') url.searchParams.set('token', this.config.token);
+    // GAS 보안 인터셉터용 앱 토큰 (헤더는 GAS에서 지원 안 되므로 URL 파라미터로 전달)
+    if (APP_SECURITY_TOKEN) url.searchParams.set('x_eds_app_token', APP_SECURITY_TOKEN);
     Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
     return url.toString();
   }
@@ -270,6 +274,8 @@ export class EdsApi {
     const body = JSON.stringify({
       action,
       token: this.config.token,
+      // GAS 보안 인터셉터용 앱 토큰 (POST body에 포함)
+      ...(APP_SECURITY_TOKEN ? { x_eds_app_token: APP_SECURITY_TOKEN } : {}),
       payload,
     });
 

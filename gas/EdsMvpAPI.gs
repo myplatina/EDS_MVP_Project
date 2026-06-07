@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - Web API Script v0.8.5.2
+ * ED's MVP - Web API Script v0.8.6
  *
  * 목적:
  * - PWA/모바일 웹앱에서 Google Sheets의 App_* 데이터를 읽고 수정하기 위한 API
@@ -87,6 +87,19 @@ function edApi_handleRequest_(method, e) {
       });
     }
 
+    // --- 앱 토큰 보안 인터셉터 ---
+    // ScriptProperties에 EDS_APP_TOKEN이 설정된 경우, 요청의 x_eds_app_token과 반드시 일치해야 함
+    // 미설정 시는 개발/테스트 편의를 위해 통과
+    const appTokenInterceptResult = edApi_validateAppToken_(request.appToken);
+    if (!appTokenInterceptResult.ok) {
+      return edApi_json_({
+        ok: false,
+        action,
+        error: appTokenInterceptResult.error,
+        message: 'EDS 앱 토큰 검증 실패. VITE_EDS_APP_TOKEN과 ScriptProperties EDS_APP_TOKEN을 확인하세요.',
+      });
+    }
+
     switch (action) {
       case "getSettings":
         return edApi_json_(edApi_success_(action, edApi_getSettings_()));
@@ -107,13 +120,10 @@ function edApi_handleRequest_(method, e) {
         return edApi_json_(edApi_success_(action, edApi_getPortfolioOutput_()));
 
       case "refreshKrxPrices":
-        return edApi_json_(edApi_success_(action, refreshKrxPricesFromKis()));        
+        return edApi_json_(edApi_success_(action, refreshKrxPricesFromKis()));
 
       case "getAppStatus":
         return edApi_json_(edApi_success_(action, getAppStatus(request.payload)));
-
-      case "refreshKrxPrices":
-        return edApi_json_(edApi_success_(action, refreshKrxPricesFromKis()));
 
       case "refreshKrxPricesToMainSheet":
         return edApi_json_(edApi_success_(action, refreshKrxPricesToMainSheetFromKis()));
@@ -193,6 +203,7 @@ function edApi_parseRequest_(method, e) {
     return {
       action: params.action || "",
       token: params.token || "",
+      appToken: params.x_eds_app_token || "",
       payload: params.payload ? JSON.parse(params.payload) : {},
     };
   }
@@ -212,6 +223,7 @@ function edApi_parseRequest_(method, e) {
   return {
     action: body.action || params.action || "",
     token: body.token || params.token || "",
+    appToken: body.x_eds_app_token || params.x_eds_app_token || "",
     payload: body.payload || {},
   };
 }
@@ -251,6 +263,31 @@ function edApi_validateToken_(token) {
 
   if (String(token) !== savedToken) {
     return { ok: false, error: "invalid_token" };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * EDS 앱 토큰 인터셉터 검증
+ * ScriptProperties 'EDS_APP_TOKEN'이 설정된 경우만 검증을 수행함.
+ * 미설정 시에는 열린 통로(전환기 모드) 유지.
+ */
+function edApi_validateAppToken_(appToken) {
+  const props = PropertiesService.getScriptProperties();
+  const savedAppToken = String(props.getProperty('EDS_APP_TOKEN') || '').trim();
+
+  // 설정 안 된 경우 전환기 모드로 허용
+  if (!savedAppToken) {
+    return { ok: true, warning: 'eds_app_token_not_set' };
+  }
+
+  if (!appToken) {
+    return { ok: false, error: 'missing_app_token' };
+  }
+
+  if (String(appToken).trim() !== savedAppToken) {
+    return { ok: false, error: 'invalid_app_token' };
   }
 
   return { ok: true };

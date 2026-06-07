@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - Main Sheet Mapping Inspector v0.8.5.2
+ * ED's MVP - Main Sheet Mapping Inspector v0.8.6
  *
  * 목적:
  * - 기존 "2. 종목현황" 시트 구조 분석

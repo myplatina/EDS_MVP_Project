@@ -854,3 +854,135 @@ body,
   color: #bbf7d0;
 }
 
+/* ================================================================
+   v0.8.6 — Quick Action Bar
+   ================================================================ */
+.quick-action-bar {
+  display: flex;
+  gap: 10px;
+  padding: 12px 4px;
+  margin-bottom: 4px;
+}
+.quick-action-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.quick-action-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 10px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(34,197,94,0.18) 0%, rgba(56,189,248,0.12) 100%);
+  border: 1px solid rgba(34,197,94,0.32);
+  color: #bbf7d0;
+  font-weight: 700;
+  font-size: 15px;
+  transition: background 0.18s, border-color 0.18s, transform 0.12s;
+}
+.quick-action-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(34,197,94,0.28) 0%, rgba(56,189,248,0.20) 100%);
+  border-color: rgba(34,197,94,0.6);
+  transform: translateY(-2px);
+}
+.quick-action-btn:active:not(:disabled) { transform: translateY(0); }
+.quick-action-btn:disabled { opacity: 0.45; }
+.quick-action-icon { font-size: 20px; }
+.quick-action-time {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ================================================================
+   v0.8.6 — Risk Dots (위험 인디케이터)
+   ================================================================ */
+.risk-dot {
+  display: inline-block;
+  margin-left: 5px;
+  font-size: 10px;
+  vertical-align: middle;
+  cursor: help;
+}
+.risk-dot--drop { color: #ef4444; } /* 손실 확대: 붉은색 */
+.risk-dot--concentration { color: #f97316; } /* 비중 과다: 주황색 */
+.risk-dot--deviation { color: #f59e0b; } /* 비중 괴리: 황색 */
+
+/* ================================================================
+   v0.8.6 — Deficit Action Card
+   ================================================================ */
+.deficit-action-card {
+  border: 1px solid rgba(245,158,11,0.28);
+  background: rgba(245,158,11,0.06);
+}
+.deficit-card-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: 1px solid rgba(245,158,11,0.22);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-top: 8px;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.16s;
+}
+.deficit-card-row:hover { background: rgba(245,158,11,0.10); }
+.deficit-card-info { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.deficit-badge {
+  display: inline-block;
+  background: rgba(245,158,11,0.22);
+  color: #fbbf24;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  letter-spacing: 0.5px;
+  align-self: flex-start;
+}
+.deficit-name { font-size: 15px; font-weight: 700; }
+.deficit-account { font-size: 12px; }
+.deficit-card-numbers { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.deficit-amount { font-size: 15px; font-weight: 800; color: #fbbf24; }
+.deficit-deviation { font-size: 12px; }
+.deficit-card-action { font-size: 12px; white-space: nowrap; }
+
+/* ================================================================
+   v0.8.6 — Advanced Settings Accordion
+   ================================================================ */
+.advanced-settings-card { padding: 0; overflow: hidden; }
+.advanced-settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 16px 20px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.advanced-settings-toggle:hover { background: rgba(148,163,184,0.06); color: var(--text); }
+.advanced-settings-chevron { font-size: 11px; opacity: 0.7; }
+.advanced-settings-body {
+  border-top: 1px solid var(--line);
+  padding: 12px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.advanced-settings-body .card {
+  margin: 0;
+  background: rgba(15,23,42,0.5);
+}
