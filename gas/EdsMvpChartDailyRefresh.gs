@@ -43,61 +43,105 @@ function refreshAllKrxDailyChartsFromKisFast() {
   const newChartRows = [];
   const results = [];
 
-  assets.forEach((asset) => {
+  // --- fetchAll 병렬 배치 처리 ---
+  // 1. KIS 토큰/자격증명 1회 취득
+  const token = edKis_getAccessToken_();
+  const props = PropertiesService.getScriptProperties();
+  const appKey = props.getProperty(ED_KIS_HELPER.properties.appKey);
+  const appSecret = props.getProperty(ED_KIS_HELPER.properties.appSecret);
+
+  if (!appKey || !appSecret) {
+    throw new Error('KIS appkey/appsecret이 없습니다. setupKisCredentials()를 먼저 실행하세요.');
+  }
+
+  // 2. 마유효 종목만 대상 필터링
+  const validAssets = assets.filter((asset) => {
     const assetId = String(asset.asset_id || '').trim();
     const ticker = edDaily_normalizeTicker_(asset.ticker);
-
     if (!assetId || !ticker) {
       results.push([assetId, ticker, interval, 'skip', 0, 'asset_id 또는 ticker 없음']);
-      return;
+      return false;
     }
-
     targetAssetIds.add(assetId);
+    return true;
+  });
 
+  // 3. 요청 객체 배열 조립
+  const kisBaseUrl = edKis_getBaseUrl_();
+  const requestSpecs = validAssets.map((asset) => {
+    const ticker = edDaily_normalizeTicker_(asset.ticker);
+    const query = {
+      FID_COND_MRKT_DIV_CODE: 'J',
+      FID_INPUT_ISCD: ticker,
+      FID_INPUT_DATE_1: start,
+      FID_INPUT_DATE_2: end,
+      FID_PERIOD_DIV_CODE: interval,
+      FID_ORG_ADJ_PRC: '0',
+    };
+    return {
+      url: kisBaseUrl + ED_KIS_HELPER.chartPath + '?' + edKis_toQueryString_(query),
+      method: 'get',
+      headers: {
+        Authorization: 'Bearer ' + token,
+        appkey: appKey,
+        appsecret: appSecret,
+        tr_id: ED_KIS_HELPER.chartTrId,
+        custtype: 'P',
+      },
+      muteHttpExceptions: true,
+    };
+  });
+
+  // 4. 병렬 발사 (15개씩 chunk, chunk 사이 150ms 대기)
+  const CHUNK_SIZE = 15;
+  const allResponses = [];
+  for (let chunkStart = 0; chunkStart < requestSpecs.length; chunkStart += CHUNK_SIZE) {
+    if (chunkStart > 0) Utilities.sleep(150);
+    const chunkRes = UrlFetchApp.fetchAll(requestSpecs.slice(chunkStart, chunkStart + CHUNK_SIZE));
+    chunkRes.forEach((r) => allResponses.push(r));
+  }
+
+  // 5. 응답 일괄 처리
+  const now = new Date();
+  allResponses.forEach((res, i) => {
+    const asset = validAssets[i];
+    const assetId = String(asset.asset_id || '').trim();
+    const ticker = edDaily_normalizeTicker_(asset.ticker);
     try {
-      const result = edDaily_fetchKisChartWithRetry_(ticker, interval, start, end);
-      const items = (result.items || []).slice(-limit);
-      const now = new Date();
+      const status = res.getResponseCode();
+      const text = res.getContentText();
+      let json;
+      try { json = JSON.parse(text); } catch (e) {
+        throw new Error(`KIS chart JSON parse 실패. HTTP=${status}, body=${text.slice(0, 400)}`);
+      }
+      if (status < 200 || status >= 300) {
+        throw new Error(`KIS chart HTTP 오류. HTTP=${status}, body=${text.slice(0, 400)}`);
+      }
+      if (String(json.rt_cd || '') !== '0') {
+        throw new Error(`KIS chart API 오류. rt_cd=${json.rt_cd}, msg_cd=${json.msg_cd}, msg=${json.msg1}`);
+      }
 
-      items.forEach((item) => {
+      const rawItems = Array.isArray(json.output2) ? json.output2 : [];
+      const parsedItems = rawItems
+        .map((row) => edKis_normalizeChartRow_(row))
+        .filter((row) => row.date)
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+        .slice(-limit);
+
+      parsedItems.forEach((item) => {
         newChartRows.push([
           `${assetId}_${interval}_${item.date}`,
-          assetId,
-          ticker,
-          interval,
-          item.date,
-          item.open,
-          item.high,
-          item.low,
-          item.close,
-          item.volume,
-          'kis',
-          now,
-          now,
-          now,
+          assetId, ticker, interval,
+          item.date, item.open, item.high, item.low, item.close, item.volume,
+          'kis', now, now, now,
         ]);
       });
 
-      results.push([
-        assetId,
-        ticker,
-        interval,
-        'success',
-        items.length,
-        result.raw && result.raw.msg1 ? result.raw.msg1 : '',
-      ]);
-
-      Utilities.sleep(120); // 실전계좌 초당 20건 제한 기준: 120ms = ~초당 8건으로 안전 마진 확보
+      results.push([assetId, ticker, interval, 'success', parsedItems.length,
+        json.msg1 || '']);
     } catch (e) {
-      results.push([
-        assetId,
-        ticker,
-        interval,
-        'error',
-        0,
-        e && e.message ? e.message : String(e),
-      ]);
-      Utilities.sleep(800); // 호출 실패 후 재시도 대기: 에러 안정성 보수적 유지
+      results.push([assetId, ticker, interval, 'error', 0,
+        e && e.message ? e.message : String(e)]);
     }
   });
 

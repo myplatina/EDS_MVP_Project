@@ -408,7 +408,6 @@ function App() {
             api={api}
             onReload={loadData}
             onHoldingDetail={(item) => setDetail({ kind: 'holding', item })}
-            apiUrl={config.apiUrl}
           />
         )}
 

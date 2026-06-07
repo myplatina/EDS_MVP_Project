@@ -162,61 +162,143 @@ function edPrice_refreshAllMarketPricesCore_(options) {
   let domesticCount = 0;
   let overseasCount = 0;
 
-  targets.forEach((target, index) => {
-    // 첫 번째 종목은 즉시 호출, 이후 종목부터 delayMs 대기
-    if (index > 0) Utilities.sleep(ED_MVP_PRICE_REFRESH.request.delayMs);
+  // --- fetchAll 병렬 배치 처리 ---
+  // 1. 토큰/자격증명을 루프 전 1회만 취득 (직렬 루프에서 매번 취득하던 방식 제거)
+  const token = edPrice_getKisAccessToken_();
+  const creds = edPrice_getKisCredentials_();
+  const baseUrl = edPrice_getKisBaseUrl_();
+
+  // 2. 각 종목의 request 객체 배열 조립
+  //    미국 종목은 exchange fallback 후보를 첫 번째 후보로 사용 (fetchAll 1차 시도)
+  const requestObjects = targets.map((target) => {
+    const headers = {
+      Authorization: 'Bearer ' + token,
+      appkey: creds.appKey,
+      appsecret: creds.appSecret,
+      custtype: 'P',
+    };
+
+    if (target.price_market === 'KRX') {
+      const query = {
+        FID_COND_MRKT_DIV_CODE: 'J',
+        FID_INPUT_ISCD: target.ticker,
+      };
+      return {
+        url: baseUrl + ED_MVP_PRICE_REFRESH.kis.domesticPricePath + '?' + edPrice_toQueryString_(query),
+        method: 'get',
+        headers: Object.assign({}, headers, { tr_id: ED_MVP_PRICE_REFRESH.kis.domesticPriceTrId }),
+        muteHttpExceptions: true,
+      };
+    } else {
+      // 미국: exchange 첫 번째 후보로 1차 병렬 요청
+      const exchangeCandidates = edPrice_getUsExchangeCandidates_(target.price_exchange, target.ticker);
+      const exchange = exchangeCandidates[0] || 'NAS';
+      const query = { AUTH: '', EXCD: exchange, SYMB: target.ticker };
+      return {
+        url: baseUrl + ED_MVP_PRICE_REFRESH.kis.overseasPricePath + '?' + edPrice_toQueryString_(query),
+        method: 'get',
+        headers: Object.assign({}, headers, { tr_id: ED_MVP_PRICE_REFRESH.kis.overseasPriceTrId }),
+        muteHttpExceptions: true,
+        _exchange: exchange,         // 응답 처리 시 참조용 (fetchAll options에 포함되지 않음)
+        _exchangeCandidates: exchangeCandidates,
+      };
+    }
+  });
+
+  // fetchAll용 options 배열 (GAS UrlFetchApp.fetchAll은 순수 request spec만 받아야 함)
+  const fetchOptions = requestObjects.map((req) => ({
+    url: req.url,
+    method: req.method,
+    headers: req.headers,
+    muteHttpExceptions: req.muteHttpExceptions,
+  }));
+
+  // 3. 병렬 발사 — 20종목 이하: 1회 전송. 초과: 15개씩 chunk 나눠 chunk 사이 150ms 대기
+  const CHUNK_SIZE = 15;
+  const allResponses = [];
+  for (let chunkStart = 0; chunkStart < fetchOptions.length; chunkStart += CHUNK_SIZE) {
+    if (chunkStart > 0) Utilities.sleep(150);
+    const chunkResponses = UrlFetchApp.fetchAll(fetchOptions.slice(chunkStart, chunkStart + CHUNK_SIZE));
+    chunkResponses.forEach((r) => allResponses.push(r));
+  }
+
+  // 4. 응답 일괄 처리
+  allResponses.forEach((res, i) => {
+    const target = targets[i];
+    const reqMeta = requestObjects[i];
     try {
-      const fetched = target.price_market === 'KRX'
-        ? edPrice_fetchKisDomesticPriceWithRetry_(target.ticker)
-        : edPrice_fetchKisOverseasPriceWithRetry_(target);
+      const status = res.getResponseCode();
+      const text = res.getContentText();
+      let json;
+      try { json = JSON.parse(text); } catch (e) {
+        throw new Error(`KIS price JSON parse 실패. HTTP=${status}, body=${text.slice(0, 400)}`);
+      }
+
+      // 미국 종목: rt_cd=0 + 가격 0이면 exchange fallback 단건 재시도
+      if (target.price_market === 'US') {
+        const outputRaw = json.output || {};
+        const output = Array.isArray(outputRaw) ? (outputRaw[0] || {}) : outputRaw;
+        const firstPrice = edPrice_firstNumber_(output.last, output.ovrs_prpr, output.price, output.stck_prpr, output.clpr);
+
+        if (!firstPrice || firstPrice <= 0 || String(json.rt_cd || '') !== '0') {
+          // fallback: 나머지 exchange 후보 단건 순차 시도
+          const candidates = (reqMeta._exchangeCandidates || []).slice(1);
+          let fetched = null;
+          for (const exchange of candidates) {
+            try {
+              fetched = edPrice_fetchKisOverseasPrice_(Object.assign({}, target, { price_exchange: exchange }));
+              if (fetched) break;
+            } catch (fe) { /* continue */ }
+          }
+          if (!fetched) throw new Error(`KIS overseas price 모든 거래소 후보 실패. ticker=${target.ticker}`);
+          const normalized = edPrice_normalizeFetchedPriceForApp_(target, fetched, usdKrwRate);
+          edPrice_applyPriceToAppPriceRow_(appPriceContext, target, normalized);
+          priceResultsByTicker.set(target.ticker, normalized);
+          results.push({ asset_id: target.asset_id, ticker: target.ticker, asset_name: target.asset_name, market: target.price_market, exchange: normalized.price_exchange || target.price_exchange, status: 'success', price: normalized.price, source_price: normalized.source_price, source_currency: normalized.source_currency, fx_rate: normalized.fx_rate, change_amount: normalized.change_amount, change_rate: normalized.change_rate, raw_status: normalized.raw_status, message: normalized.message });
+          successCount += 1; updatedPriceCount += 1; overseasCount += 1;
+          return;
+        }
+      }
+
+      if (String(json.rt_cd || '') !== '0') {
+        throw new Error(`KIS price API 오류. rt_cd=${json.rt_cd}, msg_cd=${json.msg_cd}, msg=${json.msg1}`);
+      }
+
+      // 정상 응답 처리
+      let fetched;
+      if (target.price_market === 'KRX') {
+        const output = json.output || {};
+        const sourcePrice = edPrice_num_(output.stck_prpr);
+        const prevClose = edPrice_num_(output.stck_sdpr || output.prdy_clpr || 0);
+        const sign = output.prdy_vrss_sign || '';
+        const calc = edPrice_calcChangeFromPricesOrApiPercent_(sourcePrice, prevClose, output.prdy_vrss, output.prdy_ctrt, sign);
+        fetched = { ticker: target.ticker, price_market: 'KRX', price_exchange: 'KRX', source_price: sourcePrice, source_currency: 'KRW', prev_close: prevClose, change_amount: calc.change_amount, change_rate: calc.change_rate, raw_status: json.msg_cd || '', message: json.msg1 || '', raw: json };
+      } else {
+        const outputRaw = json.output || {};
+        const output = Array.isArray(outputRaw) ? (outputRaw[0] || {}) : outputRaw;
+        const exchange = reqMeta._exchange || target.price_exchange;
+        const sourcePrice = edPrice_firstNumber_(output.last, output.ovrs_prpr, output.price, output.stck_prpr, output.clpr);
+        const prevClose = edPrice_firstNumber_(output.base, output.prev, output.prdy_clpr, output.pclose, output.basp);
+        const apiChangeAmount = edPrice_firstNumberAllowBlank_(output.diff, output.prdy_vrss, output.change, output.vrss);
+        const apiRatePercent = edPrice_firstNumberAllowBlank_(output.rate, output.prdy_ctrt, output.change_rate, output.ctrt);
+        const sign = output.sign || output.prdy_vrss_sign || '';
+        const calc = edPrice_calcChangeFromPricesOrApiPercent_(sourcePrice, prevClose, apiChangeAmount, apiRatePercent, sign);
+        fetched = { ticker: target.ticker, price_market: 'US', price_exchange: exchange, source_price: sourcePrice, source_currency: edPrice_str_(output.curr || output.currency || 'USD').toUpperCase() || 'USD', prev_close: prevClose, change_amount_source: calc.change_amount, change_amount: calc.change_amount, change_rate: calc.change_rate, raw_status: json.msg_cd || '', message: json.msg1 || '', raw: json };
+      }
 
       const normalized = edPrice_normalizeFetchedPriceForApp_(target, fetched, usdKrwRate);
-      priceResultsByTicker.set(target.ticker, normalized);
-
       edPrice_applyPriceToAppPriceRow_(appPriceContext, target, normalized);
+      priceResultsByTicker.set(target.ticker, normalized);
+      results.push({ asset_id: target.asset_id, ticker: target.ticker, asset_name: target.asset_name, market: target.price_market, exchange: normalized.price_exchange || target.price_exchange, status: 'success', price: normalized.price, source_price: normalized.source_price, source_currency: normalized.source_currency, fx_rate: normalized.fx_rate, change_amount: normalized.change_amount, change_rate: normalized.change_rate, raw_status: normalized.raw_status, message: normalized.message });
+      successCount += 1; updatedPriceCount += 1;
+      if (target.price_market === 'KRX') domesticCount += 1; else overseasCount += 1;
 
-      results.push({
-        asset_id: target.asset_id,
-        ticker: target.ticker,
-        asset_name: target.asset_name,
-        market: target.price_market,
-        exchange: normalized.price_exchange || target.price_exchange,
-        status: 'success',
-        price: normalized.price,
-        source_price: normalized.source_price,
-        source_currency: normalized.source_currency,
-        fx_rate: normalized.fx_rate,
-        change_amount: normalized.change_amount,
-        change_rate: normalized.change_rate,
-        raw_status: normalized.raw_status,
-        message: normalized.message,
-      });
-
-      successCount += 1;
-      updatedPriceCount += 1;
-      if (target.price_market === 'KRX') domesticCount += 1;
-      else overseasCount += 1;
     } catch (e) {
       const message = e && e.message ? e.message : String(e);
-      results.push({
-        asset_id: target.asset_id,
-        ticker: target.ticker,
-        asset_name: target.asset_name,
-        market: target.price_market,
-        exchange: target.price_exchange,
-        status: 'error',
-        price: '',
-        source_price: '',
-        source_currency: '',
-        fx_rate: target.price_market === 'US' ? usdKrwRate : 1,
-        change_amount: '',
-        change_rate: '',
-        raw_status: '',
-        message,
-      });
+      results.push({ asset_id: target.asset_id, ticker: target.ticker, asset_name: target.asset_name, market: target.price_market, exchange: target.price_exchange, status: 'error', price: '', source_price: '', source_currency: '', fx_rate: target.price_market === 'US' ? usdKrwRate : 1, change_amount: '', change_rate: '', raw_status: '', message });
       errorCount += 1;
     }
-  }); // targets.forEach 루프 종료
+  }); // fetchAll 응답 처리 종료
 
   edPrice_writeAppPricesContext_(appPriceContext);
 

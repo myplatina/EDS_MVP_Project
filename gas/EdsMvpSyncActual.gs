@@ -116,7 +116,7 @@ function edSyncActual_fastSync_() {
     return { status: "NO_DATA", message: "활성 holding 없음" };
   }
 
-  // --- 3. 원장 전체를 메모리에 적재 (단 1회 getValues) ---
+  // --- 3. 원장 전체를 메모리에 적재 (단 1회 getValues, getDisplayValues 호출 없음) ---
   const lastRow = Math.min(mainSheet.getLastRow(), ED_MVP_IMPORT.maxMainDataRow);
   const lastCol = mainSheet.getLastColumn();
   const dataStartRow = headerInfo.dataStartRow;
@@ -130,15 +130,11 @@ function edSyncActual_fastSync_() {
   // values: 0-indexed 2차원 배열, values[i] = i번째 데이터행
   const range = mainSheet.getRange(dataStartRow, 1, rowCount, lastCol);
   const values = range.getValues();
-  const displayValues = mainSheet
-    .getRange(dataStartRow, 1, rowCount, lastCol)
-    .getDisplayValues();
 
   // --- 4. 원장에서 holding_id 역인덱스 빠르게 구성 ---
   // holdingId → 행 배열 인덱스 (여러 개 매칭 가능)
   const mainIndexByHoldingId = edSyncActual_buildFastIndex_(
     values,
-    displayValues,
     headerInfo,
     dataStartRow
   );
@@ -477,40 +473,47 @@ function edSyncActual_safeSync_() {
 
 /*******************************************************
  * 고속 인덱스 구성 (holding_id → { arrayIndex, 필드값들 })
- * 안전 모드의 edSyncActual_buildMainSheetIndex_와 달리,
- * 이미 로드된 values/displayValues를 인수로 받아 재사용
+ * getDisplayValues 의존성 없음. values(raw) 만으로 인덱스 구성.
+ * 숫자/사후 포맷팅은 V8 엔진에서 직접 캐스팅 처리.
  *******************************************************/
 
-function edSyncActual_buildFastIndex_(values, displayValues, headerInfo, dataStartRow) {
+function edSyncActual_buildFastIndex_(values, headerInfo, dataStartRow) {
   const byHoldingId = new Map();
   const colMap = headerInfo.colMap;
 
-  let lastBroker = "";
-  let lastAccountName = "";
-  let lastAccountType = "";
-  let lastCountry = "";
+  // raw value를 문자열로 변환하는 인라인 헬퍼
+  function rawStr(row, col) {
+    if (col === undefined || col < 0) return '';
+    const v = row[col];
+    if (v === null || v === undefined) return '';
+    return String(v).trim();
+  }
+
+  let lastBroker = '';
+  let lastAccountName = '';
+  let lastAccountType = '';
+  let lastCountry = '';
   let foundHoldingOnce = false;
   let invalidStreakAfterFirstHolding = 0;
 
   for (let i = 0; i < values.length; i++) {
     const row = values[i];
-    const displayRow = displayValues[i];
     const absoluteRow = dataStartRow + i;
 
-    const broker = edImport_getCell_(row, displayRow, colMap.broker);
-    const accountName = edImport_getCell_(row, displayRow, colMap.account);
-    const accountTypeRaw = edImport_getCell_(row, displayRow, colMap.accountType);
-    const countryRaw = edImport_getCell_(row, displayRow, colMap.country);
-    const ticker = edImport_normalizeTicker_(edImport_getCell_(row, displayRow, colMap.ticker));
-    const assetName = edImport_getCell_(row, displayRow, colMap.assetName);
+    const broker = rawStr(row, colMap.broker);
+    const accountName = rawStr(row, colMap.account);
+    const accountTypeRaw = rawStr(row, colMap.accountType);
+    const countryRaw = rawStr(row, colMap.country);
+    const ticker = edImport_normalizeTicker_(rawStr(row, colMap.ticker));
+    const assetName = rawStr(row, colMap.assetName);
 
-    const quantity = edSyncActual_parseNumber_(edImport_getCellRaw_(row, displayRow, colMap.quantity));
-    const avgPriceKrw = edSyncActual_parseNumber_(edImport_getCellRaw_(row, displayRow, colMap.avgPriceKrw));
-    const avgPriceUsd = edSyncActual_parseNumber_(edImport_getCellRaw_(row, displayRow, colMap.avgPriceUsd));
-    const priceKrw = edSyncActual_parseNumber_(edImport_getCellRaw_(row, displayRow, colMap.priceKrw));
-    const priceUsd = edSyncActual_parseNumber_(edImport_getCellRaw_(row, displayRow, colMap.priceUsd));
-    const valuationAmountKrw = edSyncActual_parseNumber_(edImport_getCellRaw_(row, displayRow, colMap.valuationAmount));
-    const targetWeight = edSyncActual_parsePercent_(edImport_getCellRaw_(row, displayRow, colMap.targetWeight));
+    const quantity = edSyncActual_parseNumber_(row[colMap.quantity]);
+    const avgPriceKrw = edSyncActual_parseNumber_(row[colMap.avgPriceKrw]);
+    const avgPriceUsd = edSyncActual_parseNumber_(row[colMap.avgPriceUsd]);
+    const priceKrw = edSyncActual_parseNumber_(row[colMap.priceKrw]);
+    const priceUsd = edSyncActual_parseNumber_(row[colMap.priceUsd]);
+    const valuationAmountKrw = edSyncActual_parseNumber_(row[colMap.valuationAmount]);
+    const targetWeight = edSyncActual_parsePercent_(row[colMap.targetWeight]);
 
     if (broker) lastBroker = broker;
     if (accountName) lastAccountName = accountName;
