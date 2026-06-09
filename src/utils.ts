@@ -111,6 +111,7 @@ export type DeficitCandidate = {
   item: PortfolioOutputRow;
   gapAmount: number; // 양수 = 부족 (추가 매수 필요)
   deviationRate: number; // (계좌비중 - 목표비중) / 목표비중 — 음수 = 부족
+  required_shares: number; // 부족 금액(Gap) ÷ 원화 현재가(price)
 };
 
 /**
@@ -132,7 +133,10 @@ export function computeDeficitCandidates(items: PortfolioOutputRow[]): DeficitCa
     const gapAmount = Number(item.target_gap_amount ?? 0);
     if (gapAmount <= 0) continue;
 
-    candidates.push({ item, gapAmount, deviationRate });
+    const price = Number(item.price ?? 0);
+    const required_shares = price > 0 ? Math.floor(gapAmount / price) : 0;
+
+    candidates.push({ item, gapAmount, deviationRate, required_shares });
   }
 
   // 부족 금액 큰 순서 정렬

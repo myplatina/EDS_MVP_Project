@@ -1,30 +1,23 @@
 /*******************************************************
- * ED's MVP - KIS Price Refresh v0.8.61
+ * ED's MVP - KIS Price Refresh v0.8.7
  *
  * 목적:
  * 1) KIS Open API로 보유종목 전체 현재가 갱신
- *    - 국내 KRX: 국내주식 현재가 API
- *    - 미국 NASDAQ/NYSE/AMEX: 해외주식 현재체결가 API
+ * - 국내 KRX: 국내주식 현재가 API
+ * - 미국 NASDAQ/NYSE/AMEX: 해외주식 현재체결가 API
  * 2) App_Prices 갱신
- *    - price: App_Output 계산용 원화 환산 단가
- *    - source_price: 원천 통화 가격(KRW 또는 USD)
- *    - source_currency: 원천 통화(KRW/USD)
- *    - fx_rate: USD/KRW 적용 환율. 국내는 1
+ * - price: App_Output 계산용 원화 환산 단가
+ * - source_price: 원천 통화 가격(KRW 또는 USD)
+ * - source_currency: 원천 통화(KRW/USD)
+ * - fx_rate: USD/KRW 적용 환율. 국내는 1
  * 3) App_Output 재계산
  * 4) 선택 시 원본 '2. 종목현황' 반영
- *    - 국내: K열 현재가, M열 전일 대비 등락률
- *    - 미국: L열 달러 현재가, M열 전일 대비 등락률
- *
- * 정리 원칙:
- * - test* 함수 없음
- * - 실제 실행 함수 2개만 유지
- *   a. refreshKrxPricesFromKis()              : App_* 데이터만 갱신. 이름은 API 호환을 위해 유지
- *   b. refreshKrxPricesToMainSheetFromKis()   : App_* + 원본 2.종목현황 반영. 이름은 API 호환을 위해 유지
- * - 함수명은 기존 PWA/API 호환 때문에 KRX를 유지하지만, 실제 대상은 국내+미국 전체
+ * - 국내: K열 현재가, M열 전일 대비 등락률
+ * - 미국: L열 달러 현재가, M열 전일 대비 등락률
  *******************************************************/
 
 const ED_MVP_PRICE_REFRESH = {
-  version: '0.8.5.2',
+  version: '0.8.7',
   sheets: {
     appPrices: 'App_Prices',
     appOutput: 'App_Output',
@@ -38,7 +31,7 @@ const ED_MVP_PRICE_REFRESH = {
     appSecretProperty: 'KIS_APP_SECRET',
     accessTokenProperty: 'KIS_ACCESS_TOKEN',
     accessTokenExpiredAtProperty: 'KIS_ACCESS_TOKEN_EXPIRED_AT',
-    defaultBaseUrl: 'https://openapi.koreainvestment.com:9443',
+    defaultBaseUrl: 'https://openapi.koreainvestcom:9443',
     tokenPath: '/oauth2/tokenP',
     domesticPricePath: '/uapi/domestic-stock/v1/quotations/inquire-price',
     domesticPriceTrId: 'FHKST01010100',
@@ -46,9 +39,9 @@ const ED_MVP_PRICE_REFRESH = {
     overseasPriceTrId: 'HHDFS00000300',
   },
   request: {
-    delayMs: 100,          // KIS 실전계좌 초당 20건 제한 기준, 100ms = 안전 마진 포함 실질 초당 ~10건
+    delayMs: 100,
     retryMaxAttempts: 4,
-    retryBaseSleepMs: 800,  // 레이트리밋 감지 시 800ms, 1600ms, ... 지수 백오프
+    retryBaseSleepMs: 800,
   },
   mainSheet: {
     dataStartRow: 9,
@@ -71,25 +64,52 @@ const ED_MVP_PRICE_REFRESH = {
  * Public API-compatible functions
  *******************************************************/
 
-/**
- * App_Prices / App_Output만 갱신.
- * 원본 '2. 종목현황'은 수정하지 않음.
- *
- * NOTE: 기존 PWA action 호환을 위해 함수명은 refreshKrxPricesFromKis 유지.
- * 실제 처리 대상은 국내 KRX + 미국 NASDAQ/NYSE/AMEX 전체.
- */
-function refreshKrxPricesFromKis() {
+function refreshKrxPricesFromKis(payload) {
+  const force = Boolean(payload && payload.force);
+  if (!force) {
+    return edPrice_getCachedPricesSummary_();
+  }
   return edPrice_refreshAllMarketPricesCore_({ updateMainSheet: false });
 }
 
-/**
- * App_Prices / App_Output 갱신 후 원본 '2. 종목현황' 가격열까지 반영.
- * 국내 KRX: K/M열, 미국: L/M열.
- *
- * NOTE: 기존 PWA action 호환을 위해 함수명은 refreshKrxPricesToMainSheetFromKis 유지.
- */
-function refreshKrxPricesToMainSheetFromKis() {
+function refreshKrxPricesToMainSheetFromKis(payload) {
+  const force = Boolean(payload && payload.force);
+  if (!force) {
+    return edPrice_getCachedPricesSummary_();
+  }
   return edPrice_refreshAllMarketPricesCore_({ updateMainSheet: true });
+}
+
+function edPrice_getCachedPricesSummary_() {
+  const startedAt = new Date();
+  const appPriceContext = edPrice_readAppPricesContext_();
+  const targets = appPriceContext.rows;
+  let outputCount = 0;
+  try {
+    const outputSheet = appPriceContext.sheet.getParent().getSheetByName(ED_MVP_PRICE_REFRESH.sheets.appOutput);
+    if (outputSheet) {
+      outputCount = Math.max(0, outputSheet.getLastRow() - 1);
+    }
+  } catch (e) {}
+
+  return {
+    version: ED_MVP_PRICE_REFRESH.version,
+    fetched_at: startedAt,
+    started_at: startedAt,
+    finished_at: startedAt,
+    target_count: targets.length,
+    domestic_count: targets.filter(t => String(t.market || "").toUpperCase() === 'KRX').length,
+    overseas_count: targets.filter(t => String(t.market || "").toUpperCase() !== 'KRX').length,
+    success_count: targets.length,
+    error_count: 0,
+    skipped_count: 0,
+    updated_price_count: 0,
+    output_count: outputCount,
+    main_sheet_updated_count: 0,
+    source: 'cache',
+    update_main_sheet: false,
+    usd_krw_rate: edPrice_getUsdKrwRate_(),
+  };
 }
 
 /*******************************************************
@@ -105,7 +125,8 @@ function edMvpMenuRefreshKrxPricesAppOnly() {
   );
   if (choice !== ui.Button.OK) return;
 
-  const result = refreshKrxPricesFromKis();
+  // { force: true } 주입하여 구글 시트 메뉴 실행 시 무조건 강제 KIS API 갱신 작동 보장
+  const result = refreshKrxPricesFromKis({ force: true });
   SpreadsheetApp.getActiveSpreadsheet().toast(
     `현재가 갱신 완료: success=${result.success_count}, error=${result.error_count}, output=${result.output_count}`,
     "ED's MVP",
@@ -122,7 +143,8 @@ function edMvpMenuRefreshKrxPricesToMainSheet() {
   );
   if (choice !== ui.Button.OK) return;
 
-  const result = refreshKrxPricesToMainSheetFromKis();
+  // { force: true } 주입하여 구글 시트 메뉴 실행 시 무조건 강제 KIS API 갱신 작동 보장
+  const result = refreshKrxPricesToMainSheetFromKis({ force: true });
   SpreadsheetApp.getActiveSpreadsheet().toast(
     `원장 가격 반영 완료: success=${result.success_count}, error=${result.error_count}, main=${result.main_sheet_updated_count}`,
     "ED's MVP",
@@ -153,7 +175,6 @@ function edPrice_refreshAllMarketPricesCore_(options) {
     .filter((row) => edPrice_isEnabledPriceRow_(row))
     .map((row) => edPrice_classifyTarget_(row))
     .filter((row) => row.refreshable);
-
   const results = [];
   const priceResultsByTicker = new Map();
   let successCount = 0;
@@ -162,14 +183,10 @@ function edPrice_refreshAllMarketPricesCore_(options) {
   let domesticCount = 0;
   let overseasCount = 0;
 
-  // --- fetchAll 병렬 배치 처리 ---
-  // 1. 토큰/자격증명을 루프 전 1회만 취득 (직렬 루프에서 매번 취득하던 방식 제거)
   const token = edPrice_getKisAccessToken_();
   const creds = edPrice_getKisCredentials_();
   const baseUrl = edPrice_getKisBaseUrl_();
 
-  // 2. 각 종목의 request 객체 배열 조립
-  //    미국 종목은 exchange fallback 후보를 첫 번째 후보로 사용 (fetchAll 1차 시도)
   const requestObjects = targets.map((target) => {
     const headers = {
       Authorization: 'Bearer ' + token,
@@ -190,7 +207,6 @@ function edPrice_refreshAllMarketPricesCore_(options) {
         muteHttpExceptions: true,
       };
     } else {
-      // 미국: exchange 첫 번째 후보로 1차 병렬 요청
       const exchangeCandidates = edPrice_getUsExchangeCandidates_(target.price_exchange, target.ticker);
       const exchange = exchangeCandidates[0] || 'NAS';
       const query = { AUTH: '', EXCD: exchange, SYMB: target.ticker };
@@ -199,13 +215,12 @@ function edPrice_refreshAllMarketPricesCore_(options) {
         method: 'get',
         headers: Object.assign({}, headers, { tr_id: ED_MVP_PRICE_REFRESH.kis.overseasPriceTrId }),
         muteHttpExceptions: true,
-        _exchange: exchange,         // 응답 처리 시 참조용 (fetchAll options에 포함되지 않음)
+        _exchange: exchange,
         _exchangeCandidates: exchangeCandidates,
       };
     }
   });
 
-  // fetchAll용 options 배열 (GAS UrlFetchApp.fetchAll은 순수 request spec만 받아야 함)
   const fetchOptions = requestObjects.map((req) => ({
     url: req.url,
     method: req.method,
@@ -213,7 +228,6 @@ function edPrice_refreshAllMarketPricesCore_(options) {
     muteHttpExceptions: req.muteHttpExceptions,
   }));
 
-  // 3. 병렬 발사 — 20종목 이하: 1회 전송. 초과: 15개씩 chunk 나눠 chunk 사이 150ms 대기
   const CHUNK_SIZE = 15;
   const allResponses = [];
   for (let chunkStart = 0; chunkStart < fetchOptions.length; chunkStart += CHUNK_SIZE) {
@@ -222,7 +236,6 @@ function edPrice_refreshAllMarketPricesCore_(options) {
     chunkResponses.forEach((r) => allResponses.push(r));
   }
 
-  // 4. 응답 일괄 처리
   allResponses.forEach((res, i) => {
     const target = targets[i];
     const reqMeta = requestObjects[i];
@@ -234,14 +247,12 @@ function edPrice_refreshAllMarketPricesCore_(options) {
         throw new Error(`KIS price JSON parse 실패. HTTP=${status}, body=${text.slice(0, 400)}`);
       }
 
-      // 미국 종목: rt_cd=0 + 가격 0이면 exchange fallback 단건 재시도
       if (target.price_market === 'US') {
         const outputRaw = json.output || {};
         const output = Array.isArray(outputRaw) ? (outputRaw[0] || {}) : outputRaw;
         const firstPrice = edPrice_firstNumber_(output.last, output.ovrs_prpr, output.price, output.stck_prpr, output.clpr);
 
-        if (!firstPrice || firstPrice <= 0 || String(json.rt_cd || '') !== '0') {
-          // fallback: 나머지 exchange 후보 단건 순차 시도
+        if (String(json.rt_cd || '') === '0' && (!firstPrice || firstPrice <= 0)) {
           const candidates = (reqMeta._exchangeCandidates || []).slice(1);
           let fetched = null;
           for (const exchange of candidates) {
@@ -264,7 +275,6 @@ function edPrice_refreshAllMarketPricesCore_(options) {
         throw new Error(`KIS price API 오류. rt_cd=${json.rt_cd}, msg_cd=${json.msg_cd}, msg=${json.msg1}`);
       }
 
-      // 정상 응답 처리
       let fetched;
       if (target.price_market === 'KRX') {
         const output = json.output || {};
@@ -292,13 +302,12 @@ function edPrice_refreshAllMarketPricesCore_(options) {
       results.push({ asset_id: target.asset_id, ticker: target.ticker, asset_name: target.asset_name, market: target.price_market, exchange: normalized.price_exchange || target.price_exchange, status: 'success', price: normalized.price, source_price: normalized.source_price, source_currency: normalized.source_currency, fx_rate: normalized.fx_rate, change_amount: normalized.change_amount, change_rate: normalized.change_rate, raw_status: normalized.raw_status, message: normalized.message });
       successCount += 1; updatedPriceCount += 1;
       if (target.price_market === 'KRX') domesticCount += 1; else overseasCount += 1;
-
     } catch (e) {
       const message = e && e.message ? e.message : String(e);
       results.push({ asset_id: target.asset_id, ticker: target.ticker, asset_name: target.asset_name, market: target.price_market, exchange: target.price_exchange, status: 'error', price: '', source_price: '', source_currency: '', fx_rate: target.price_market === 'US' ? usdKrwRate : 1, change_amount: '', change_rate: '', raw_status: '', message });
       errorCount += 1;
     }
-  }); // fetchAll 응답 처리 종료
+  });
 
   edPrice_writeAppPricesContext_(appPriceContext);
 
@@ -331,7 +340,6 @@ function edPrice_refreshAllMarketPricesCore_(options) {
     update_main_sheet: updateMainSheet,
     usd_krw_rate: usdKrwRate,
   };
-
   edPrice_writeRefreshResult_(summary, results);
   return summary;
 }
@@ -350,15 +358,12 @@ function edPrice_readAppPricesContext_() {
   const range = sheet.getDataRange();
   const values = range.getValues();
   if (values.length < 2) throw new Error('App_Prices 데이터가 비어 있습니다.');
-
   const headers = values[0].map((h) => String(h || '').trim());
   const col = edPrice_makeHeaderIndex_(headers);
-
   const required = ['asset_id', 'ticker', 'price', 'change_amount', 'change_rate', 'currency', 'source'];
   required.forEach((key) => {
     if (col[key] === undefined) throw new Error(`App_Prices 필수 헤더 누락: ${key}`);
   });
-
   const rows = values.slice(1).map((row, i) => ({
     rowIndex: i + 2,
     row,
@@ -368,7 +373,6 @@ function edPrice_readAppPricesContext_() {
     market: col.market !== undefined ? edPrice_str_(row[col.market]) : edPrice_marketFromAssetId_(row[col.asset_id]),
     enabled: col.enabled !== undefined ? edPrice_str_(row[col.enabled]) : 'TRUE',
   }));
-
   return { sheet, values, headers, col, rows };
 }
 
@@ -386,7 +390,6 @@ function edPrice_ensureAppPricesOptionalHeaders_(sheet) {
       changed = true;
     }
   });
-
   if (changed) {
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#137333').setFontColor('#ffffff');
     sheet.autoResizeColumns(1, headers.length);
@@ -403,7 +406,6 @@ function edPrice_applyPriceToAppPriceRow_(context, target, fetched) {
   rowArray[col.change_rate] = fetched.change_rate;
   rowArray[col.currency] = 'KRW';
   rowArray[col.source] = ED_MVP_PRICE_REFRESH.allowedPriceSource;
-
   if (col.source_price !== undefined) rowArray[col.source_price] = fetched.source_price;
   if (col.source_currency !== undefined) rowArray[col.source_currency] = fetched.source_currency;
   if (col.fx_rate !== undefined) rowArray[col.fx_rate] = fetched.fx_rate;
@@ -420,15 +422,12 @@ function edPrice_writeAppPricesContext_(context) {
 
 function edPrice_updateMainSheetPrices_(priceResultsByTicker) {
   if (!priceResultsByTicker || priceResultsByTicker.size === 0) return 0;
-
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(ED_MVP_PRICE_REFRESH.sheets.mainSheet);
   if (!sheet) throw new Error("원본 '2. 종목현황' 시트를 찾을 수 없습니다.");
-
   const lastRow = sheet.getLastRow();
   const startRow = ED_MVP_PRICE_REFRESH.mainSheet.dataStartRow;
   if (lastRow < startRow) return 0;
-
   const rowCount = lastRow - startRow + 1;
   const tickerValues = sheet.getRange(startRow, ED_MVP_PRICE_REFRESH.mainSheet.tickerCol, rowCount, 1).getValues();
   const krwPriceRange = sheet.getRange(startRow, ED_MVP_PRICE_REFRESH.mainSheet.krwPriceCol, rowCount, 1);
@@ -437,7 +436,6 @@ function edPrice_updateMainSheetPrices_(priceResultsByTicker) {
   const krwPriceValues = krwPriceRange.getValues();
   const usdPriceValues = usdPriceRange.getValues();
   const changeValues = changeRange.getValues();
-
   let updated = 0;
 
   tickerValues.forEach((row, index) => {
@@ -453,13 +451,11 @@ function edPrice_updateMainSheetPrices_(priceResultsByTicker) {
     changeValues[index][0] = item.change_rate;
     updated += 1;
   });
-
   if (updated > 0) {
     krwPriceRange.setValues(krwPriceValues);
     usdPriceRange.setValues(usdPriceValues);
     changeRange.setValues(changeValues);
   }
-
   return updated;
 }
 
@@ -470,7 +466,6 @@ function edPrice_updateMainSheetPrices_(priceResultsByTicker) {
 function edPrice_classifyTarget_(row) {
   const marketRaw = edPrice_str_(row.market || edPrice_marketFromAssetId_(row.asset_id)).toUpperCase();
   const ticker = edPrice_normalizeTicker_(row.ticker);
-
   if (marketRaw === 'KRX') {
     return Object.assign({}, row, {
       ticker,
@@ -490,7 +485,6 @@ function edPrice_classifyTarget_(row) {
     });
   }
 
-  // 일부 구버전 App_Prices에 market 컬럼이 없으면 asset_id prefix로 재판정.
   const prefix = edPrice_marketFromAssetId_(row.asset_id).toUpperCase();
   const prefixExchange = edPrice_toKisUsExchangeCode_(prefix);
   if (prefix === 'KRX') {
@@ -565,29 +559,17 @@ function edPrice_fetchKisDomesticPrice_(ticker) {
     FID_COND_MRKT_DIV_CODE: 'J',
     FID_INPUT_ISCD: edPrice_normalizeTicker_(ticker),
   };
-
   const url = edPrice_getKisBaseUrl_()
     + ED_MVP_PRICE_REFRESH.kis.domesticPricePath
     + '?'
     + edPrice_toQueryString_(query);
-
   const json = edPrice_fetchKisJson_(url, token, creds, ED_MVP_PRICE_REFRESH.kis.domesticPriceTrId, 'KIS domestic price');
   const output = json.output || {};
 
   const sourcePrice = edPrice_num_(output.stck_prpr);
   const prevClose = edPrice_num_(output.stck_sdpr || output.prdy_clpr || 0);
   const sign = output.prdy_vrss_sign || '';
-
-  // 등락/등락률은 API의 rate 필드보다 "현재가 - 전일종가" 기준을 우선한다.
-  // 이렇게 해야 국내/해외 모두 M열이 "전일 종가 대비 현재가"로 동일해진다.
-  const calc = edPrice_calcChangeFromPricesOrApiPercent_(
-    sourcePrice,
-    prevClose,
-    output.prdy_vrss,
-    output.prdy_ctrt,
-    sign
-  );
-
+  const calc = edPrice_calcChangeFromPricesOrApiPercent_(sourcePrice, prevClose, output.prdy_vrss, output.prdy_ctrt, sign);
   return {
     ticker: edPrice_normalizeTicker_(ticker),
     price_market: 'KRX',
@@ -616,26 +598,18 @@ function edPrice_fetchKisOverseasPrice_(target) {
       EXCD: exchange,
       SYMB: target.ticker,
     };
-
     const url = edPrice_getKisBaseUrl_()
       + ED_MVP_PRICE_REFRESH.kis.overseasPricePath
       + '?'
       + edPrice_toQueryString_(query);
-
     try {
       const json = edPrice_fetchKisJson_(url, token, creds, ED_MVP_PRICE_REFRESH.kis.overseasPriceTrId, 'KIS overseas price');
       const outputRaw = json.output || {};
       const output = Array.isArray(outputRaw) ? (outputRaw[0] || {}) : outputRaw;
-
       const sourcePrice = edPrice_firstNumber_(output.last, output.ovrs_prpr, output.price, output.stck_prpr, output.clpr);
 
-      // KIS 해외 API는 잘못된 거래소 코드에서도 rt_cd=0으로 내려오면서
-      // 현재가 필드가 0/공백인 케이스가 있다. SCHD 같은 NYSE Arca 계열 ETF가 대표적.
-      // 이 경우 success로 처리하면 App_Prices가 0으로 오염되므로 다음 거래소 후보로 fallback한다.
       if (!sourcePrice || sourcePrice <= 0) {
-        lastError = new Error(
-          `KIS overseas price returned zero. ticker=${target.ticker}, exchange=${exchange}, msg_cd=${json.msg_cd || ''}, msg=${json.msg1 || ''}`
-        );
+        lastError = new Error(`KIS overseas price returned zero. ticker=${target.ticker}, exchange=${exchange}, msg_cd=${json.msg_cd || ''}, msg=${json.msg1 || ''}`);
         if (i < exchangeCandidates.length - 1) continue;
         throw lastError;
       }
@@ -644,17 +618,7 @@ function edPrice_fetchKisOverseasPrice_(target) {
       const apiChangeAmount = edPrice_firstNumberAllowBlank_(output.diff, output.prdy_vrss, output.change, output.vrss);
       const apiRatePercent = edPrice_firstNumberAllowBlank_(output.rate, output.prdy_ctrt, output.change_rate, output.ctrt);
       const sign = output.sign || output.prdy_vrss_sign || output.diff_sign || '';
-
-      // 해외 API의 rate 필드는 퍼센트 단위인데, -0.07 같은 작은 값도 "-0.07%"이다.
-      // 이전 버전의 휴리스틱은 -0.07을 -7%로 해석할 수 있었다.
-      // 따라서 전일종가가 있으면 무조건 (현재가 - 전일종가) / 전일종가로 재계산한다.
-      const calc = edPrice_calcChangeFromPricesOrApiPercent_(
-        sourcePrice,
-        prevClose,
-        apiChangeAmount,
-        apiRatePercent,
-        sign
-      );
+      const calc = edPrice_calcChangeFromPricesOrApiPercent_(sourcePrice, prevClose, apiChangeAmount, apiRatePercent, sign);
 
       return {
         ticker: target.ticker,
@@ -672,11 +636,9 @@ function edPrice_fetchKisOverseasPrice_(target) {
       };
     } catch (e) {
       lastError = e;
-      // 거래소 코드 fallback만 시도. 마지막 후보까지 실패하면 throw.
       if (i < exchangeCandidates.length - 1) continue;
     }
   }
-
   throw lastError;
 }
 
@@ -692,7 +654,6 @@ function edPrice_fetchKisJson_(url, token, creds, trId, label) {
       custtype: 'P',
     },
   });
-
   const status = res.getResponseCode();
   const text = res.getContentText();
   let json;
@@ -705,7 +666,6 @@ function edPrice_fetchKisJson_(url, token, creds, trId, label) {
   if (status < 200 || status >= 300 || String(json.rt_cd || '') !== '0') {
     throw new Error(`${label} HTTP 오류. HTTP=${status}, body=${text.slice(0, 1000)}`);
   }
-
   return json;
 }
 
@@ -719,21 +679,13 @@ function edPrice_getUsExchangeCandidates_(exchange, ticker) {
     if (v && candidates.indexOf(v) < 0) candidates.push(v);
   }
 
-  // ETF 중 일부는 원장/TradingView 표기는 NYSE처럼 보이지만 KIS 가격 API에서는
-  // NYSE Arca/AMEX 계열 코드(AMS)로 조회해야 정상 가격이 나온다.
-  // SCHD는 NYSE Arca 상장 ETF라 AMS 우선 후보로 둔다.
   if (t === 'SCHD') add('AMS');
-
   if (e === 'NAS' || e === 'NASDAQ' || e === 'NASD') add('NAS');
   if (e === 'NYS' || e === 'NYSE') add('NYS');
   if (e === 'AMS' || e === 'AMEX') add('AMS');
-
-  // 잘못된 거래소 코드에서 rt_cd=0 + 가격 0이 나올 수 있으므로
-  // 주요 미국 거래소 후보를 모두 fallback한다.
   add('AMS');
   add('NAS');
   add('NYS');
-
   return candidates;
 }
 
@@ -758,7 +710,6 @@ function edPrice_normalizeFetchedPriceForApp_(target, fetched, usdKrwRate) {
 
   const fx = Number(usdKrwRate || 0);
   if (!fx || fx <= 0) throw new Error('USD/KRW 환율을 확인할 수 없어 미국 종목 원화 평가액을 계산할 수 없습니다.');
-
   return {
     ticker: target.ticker,
     price_market: 'US',
@@ -775,10 +726,6 @@ function edPrice_normalizeFetchedPriceForApp_(target, fetched, usdKrwRate) {
     raw: fetched.raw,
   };
 }
-
-/*******************************************************
- * KIS auth
- *******************************************************/
 
 function edPrice_getKisCredentials_() {
   const props = PropertiesService.getScriptProperties();
@@ -806,7 +753,6 @@ function edPrice_issueKisAccessToken_() {
   const creds = edPrice_getKisCredentials_();
   const props = PropertiesService.getScriptProperties();
   const url = edPrice_getKisBaseUrl_() + ED_MVP_PRICE_REFRESH.kis.tokenPath;
-
   const res = UrlFetchApp.fetch(url, {
     method: 'post',
     contentType: 'application/json',
@@ -817,7 +763,6 @@ function edPrice_issueKisAccessToken_() {
       appsecret: creds.appSecret,
     }),
   });
-
   const status = res.getResponseCode();
   const text = res.getContentText();
   let json;
@@ -838,17 +783,12 @@ function edPrice_issueKisAccessToken_() {
   return json.access_token;
 }
 
-/*******************************************************
- * Refresh result log
- *******************************************************/
-
 function edPrice_writeRefreshResult_(summary, rows) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(ED_MVP_PRICE_REFRESH.sheets.priceRefreshResult);
   if (!sheet) sheet = ss.insertSheet(ED_MVP_PRICE_REFRESH.sheets.priceRefreshResult);
 
   sheet.clear();
-
   const summaryRows = [
     ['metric', 'value'],
     ['version', summary.version],
@@ -866,66 +806,33 @@ function edPrice_writeRefreshResult_(summary, rows) {
     ['update_main_sheet', summary.update_main_sheet],
     ['usd_krw_rate', summary.usd_krw_rate],
   ];
-
   sheet.getRange(1, 1, summaryRows.length, 2).setValues(summaryRows);
   sheet.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#137333').setFontColor('#ffffff');
 
   const detailHeader = [
-    'asset_id',
-    'ticker',
-    'asset_name',
-    'market',
-    'exchange',
-    'status',
-    'price_krw',
-    'source_price',
-    'source_currency',
-    'fx_rate',
-    'change_amount_krw',
-    'change_rate',
-    'raw_status',
-    'message',
+    'asset_id', 'ticker', 'asset_name', 'market', 'exchange', 'status',
+    'price_krw', 'source_price', 'source_currency', 'fx_rate',
+    'change_amount_krw', 'change_rate', 'raw_status', 'message',
   ];
-
   const detailRows = rows.map((row) => [
-    row.asset_id,
-    row.ticker,
-    row.asset_name,
-    row.market,
-    row.exchange,
-    row.status,
-    row.price,
-    row.source_price,
-    row.source_currency,
-    row.fx_rate,
-    row.change_amount,
-    row.change_rate,
-    row.raw_status,
-    row.message,
+    row.asset_id, row.ticker, row.asset_name, row.market, row.exchange, row.status,
+    row.price, row.source_price, row.source_currency, row.fx_rate,
+    row.change_amount, row.change_rate, row.raw_status, row.message,
   ]);
-
   const startRow = 18;
   sheet.getRange(startRow, 1, 1, detailHeader.length).setValues([detailHeader]);
   sheet.getRange(startRow, 1, 1, detailHeader.length).setFontWeight('bold').setBackground('#137333').setFontColor('#ffffff');
-
   if (detailRows.length > 0) {
     sheet.getRange(startRow + 1, 1, detailRows.length, detailHeader.length).setValues(detailRows);
   }
-
   sheet.autoResizeColumns(1, detailHeader.length);
 }
-
-/*******************************************************
- * FX rate
- *******************************************************/
 
 function edPrice_getUsdKrwRate_() {
   const fromSettings = edPrice_getUsdKrwRateFromSettings_();
   if (fromSettings > 0) return fromSettings;
-
   const fromMain = edPrice_getUsdKrwRateFromMainSheet_();
   if (fromMain > 0) return fromMain;
-
   throw new Error("USD/KRW 환율을 찾을 수 없습니다. App_Settings에 usd_krw_rate를 넣거나 '2. 종목현황' L5 환율 표시를 확인하세요.");
 }
 
@@ -933,7 +840,6 @@ function edPrice_getUsdKrwRateFromSettings_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(ED_MVP_PRICE_REFRESH.sheets.settings);
   if (!sheet || sheet.getLastRow() < 2) return 0;
-
   const values = sheet.getDataRange().getValues();
   for (let i = 1; i < values.length; i++) {
     const key = edPrice_str_(values[i][0]).toLowerCase();
@@ -951,20 +857,15 @@ function edPrice_getUsdKrwRateFromMainSheet_() {
   if (!sheet) return 0;
 
   const candidates = [
-    sheet.getRange(5, 12).getDisplayValue(), // L5: "$1 = ￦..." 표시 셀
+    sheet.getRange(5, 12).getDisplayValue(),
     sheet.getRange(5, 12).getValue(),
   ];
-
   for (let i = 0; i < candidates.length; i++) {
     const n = edPrice_parseLargestNumber_(candidates[i]);
     if (n > 0) return n;
   }
   return 0;
 }
-
-/*******************************************************
- * Utilities
- *******************************************************/
 
 function edPrice_makeHeaderIndex_(headers) {
   const map = {};
@@ -1029,11 +930,9 @@ function edPrice_parseLargestNumber_(value) {
   return Math.max.apply(null, nums);
 }
 
-
 function edPrice_calcChangeFromPricesOrApiPercent_(currentPrice, prevClose, apiChangeAmount, apiRatePercent, sign) {
   const current = edPrice_num_(currentPrice);
   const prev = edPrice_num_(prevClose);
-
   if (current > 0 && prev > 0) {
     const changeAmount = current - prev;
     return {
@@ -1045,13 +944,10 @@ function edPrice_calcChangeFromPricesOrApiPercent_(currentPrice, prevClose, apiC
   let amount = edPrice_firstNumberAllowBlank_(apiChangeAmount);
   if (amount === null) amount = 0;
   amount = edPrice_signedNumBySignOrValue_(amount, sign);
-
   let rate = edPrice_firstNumberAllowBlank_(apiRatePercent);
   if (rate === null) {
     rate = 0;
   } else {
-    // KIS의 등락률 필드는 국내/해외 모두 퍼센트 단위로 취급한다.
-    // 예: 0.23 => 0.23% => 0.0023, -0.07 => -0.07% => -0.0007
     rate = edPrice_signedPercentToDecimal_(rate, sign);
   }
 
@@ -1128,4 +1024,27 @@ function edPrice_extractOutputCount_(output) {
   if (output.row_count !== undefined) return Number(output.row_count) || 0;
   if (output.count !== undefined) return Number(output.count) || 0;
   return 0;
+}
+
+/*******************************************************
+ * 스케줄러 트리거 연동 전용 마스터 크론 함수 (v0.8.7 최종 이관)
+ *******************************************************/
+function edsCron_marketHourBatchUpdate() {
+  Logger.log("[Cron] 백그라운드 자산 및 차트 배치 최신화 파이프라인 가동...");
+  
+  // 1. 일/주/월 D/W/M 차트 3주기 병렬 벌크 캐싱 통합 트리거 수행
+  try {
+    refreshAllKrxDailyChartsFromKisFast();
+  } catch(e) {
+    Logger.log("[Cron-Error] 차트 배치 실패: " + e.message);
+  }
+  
+  // 2. 장중 현재가 및 평가금액 원장 강제 동기화 슛
+  try {
+    refreshKrxPricesFromKis({ force: true });
+  } catch(e) {
+    Logger.log("[Cron-Error] 현재가 배치 실패: " + e.message);
+  }
+  
+  Logger.log("[Cron] 백그라운드 자동 캐싱 완료.");
 }

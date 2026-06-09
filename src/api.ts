@@ -1,6 +1,6 @@
 import type { ApiResponse, AppConfig, AppStatus, ChartData, DashboardData, DividendDashboard, DividendRecord, HoldingRow, PortfolioOutputRow, PriceRefreshResult, RefreshLogs } from './types';
 
-export const APP_VERSION = '0.8.61';
+export const APP_VERSION = '0.8.62';
 
 const DEFAULT_API_URL = import.meta.env.VITE_EDS_API_URL || '';
 const DEFAULT_API_TOKEN = '';
@@ -322,12 +322,12 @@ export class EdsApi {
     return this.get<{ message: string; output_count: number }>('refreshOutput');
   }
 
-  refreshKrxPrices() {
-    return this.post<PriceRefreshResult>('refreshKrxPrices', {});
+  refreshKrxPrices(force = false) {
+    return this.post<PriceRefreshResult>('refreshKrxPrices', { force });
   }
 
-  refreshKrxPricesToMainSheet() {
-    return this.post<PriceRefreshResult>('refreshKrxPricesToMainSheet', {});
+  refreshKrxPricesToMainSheet(force = false) {
+    return this.post<PriceRefreshResult>('refreshKrxPricesToMainSheet', { force });
   }
 
   refreshKrxDailyCharts() {

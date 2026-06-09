@@ -332,7 +332,7 @@ function App() {
       setMessage('현재가 갱신 취소');
       return;
     }
-    runAction('refreshKrxPrices', () => api.refreshKrxPrices());
+    runAction('refreshKrxPrices', () => api.refreshKrxPrices(true));
   }
 
   function handleRefreshKrxPricesToMainSheet() {
@@ -341,7 +341,7 @@ function App() {
       setMessage('원본 시트 가격 반영 취소');
       return;
     }
-    runAction('refreshKrxPricesToMainSheet', () => api.refreshKrxPricesToMainSheet());
+    runAction('refreshKrxPricesToMainSheet', () => api.refreshKrxPricesToMainSheet(true));
   }
 
 
@@ -661,20 +661,46 @@ function QuickActionBar({ onRefreshPrices, onRefreshDailyCharts, refreshLogs, lo
 
 /** 부족 종목 Action Card 컴포넌트 */
 function DeficitCard({ candidate, onDetail }: { candidate: DeficitCandidate; onDetail: () => void }) {
+  const [isOpen, setIsOpen] = useState(false);
   const deviationPct = (candidate.deviationRate * 100).toFixed(1);
+  const price = Number(candidate.item.price ?? 0);
+  const requiredShares = candidate.required_shares;
+
   return (
-    <button className="deficit-card-row" onClick={onDetail}>
-      <div className="deficit-card-info">
-        <span className="deficit-badge">Deficit</span>
-        <strong className="deficit-name">{candidate.item.asset_name}</strong>
-        <span className="deficit-account muted">{candidate.item.account_name}</span>
-      </div>
-      <div className="deficit-card-numbers">
-        <span className="deficit-amount">+{formatKRW(candidate.gapAmount)}</span>
-        <span className="deficit-deviation negative">비중 괴리 {deviationPct}%</span>
-      </div>
-      <div className="deficit-card-action muted small">추가 매수 후보 →</div>
-    </button>
+    <div className={`deficit-card-container ${isOpen ? 'is-open' : ''}`}>
+      <button className="deficit-card-row" onClick={() => setIsOpen(!isOpen)}>
+        <div className="deficit-card-info">
+          <span className="deficit-badge">Deficit</span>
+          <strong className="deficit-name">{candidate.item.asset_name}</strong>
+          <span className="deficit-account muted">{candidate.item.account_name}</span>
+        </div>
+        <div className="deficit-card-numbers">
+          <span className="deficit-amount">+{formatKRW(candidate.gapAmount)}</span>
+          <span className="deficit-deviation negative">비중 괴리 {deviationPct}%</span>
+        </div>
+        <div className="deficit-card-action muted small">{isOpen ? '접기 ▲' : '계산기 ▼'}</div>
+      </button>
+      
+      {isOpen && (
+        <div className="deficit-card-details">
+          <div className="calculator-row">
+            <span>부족 금액 (Gap)</span>
+            <strong>{formatKRW(candidate.gapAmount)}</strong>
+          </div>
+          <div className="calculator-row">
+            <span>원화 현재가 (Price)</span>
+            <strong>{formatKRW(price)}</strong>
+          </div>
+          <div className="calculator-row highlight">
+            <span>권장 매수 수량</span>
+            <strong>{requiredShares} 주</strong>
+          </div>
+          <button className="ghost small full-width detail-btn" onClick={(e) => { e.stopPropagation(); onDetail(); }}>
+            상세 보기 →
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

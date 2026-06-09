@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - App to Main Sheet Actual Sync v0.8.61
+ * ED's MVP - App to Main Sheet Actual Sync v0.8.62
  *
  * 목적:
  * - App_Holdings의 입력값을 기존 "2. 종목현황"에 실제 반영

@@ -986,3 +986,53 @@ body,
   margin: 0;
   background: rgba(15,23,42,0.5);
 }
+
+/* v0.8.7 Deficit Card Accordion Calculator */
+.deficit-card-container {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+}
+.deficit-card-container .deficit-card-row {
+  margin-top: 0;
+  border-radius: 12px;
+}
+.deficit-card-container.is-open .deficit-card-row {
+  border-radius: 12px 12px 0 0;
+  background: rgba(245, 158, 11, 0.1);
+}
+.deficit-card-details {
+  border: 1px solid rgba(245,158,11,0.22);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  background: rgba(15, 23, 42, 0.45);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.calculator-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.calculator-row span {
+  color: var(--muted);
+}
+.calculator-row strong {
+  font-weight: 700;
+}
+.calculator-row.highlight {
+  border-top: 1px dashed rgba(148, 163, 184, 0.2);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+.calculator-row.highlight strong {
+  color: #fbbf24;
+  font-size: 16px;
+}
+.deficit-card-details .detail-btn {
+  margin-top: 8px;
+}

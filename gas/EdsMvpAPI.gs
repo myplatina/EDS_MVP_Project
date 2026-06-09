@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - Web API Script v0.8.61
+ * ED's MVP - Web API Script v0.8.62
  *
  * 목적:
  * - PWA/모바일 웹앱에서 Google Sheets의 App_* 데이터를 읽고 수정하기 위한 API
@@ -120,13 +120,13 @@ function edApi_handleRequest_(method, e) {
         return edApi_json_(edApi_success_(action, edApi_getPortfolioOutput_()));
 
       case "refreshKrxPrices":
-        return edApi_json_(edApi_success_(action, refreshKrxPricesFromKis()));
+        return edApi_json_(edApi_success_(action, refreshKrxPricesFromKis(request.payload)));
 
       case "getAppStatus":
         return edApi_json_(edApi_success_(action, getAppStatus(request.payload)));
 
       case "refreshKrxPricesToMainSheet":
-        return edApi_json_(edApi_success_(action, refreshKrxPricesToMainSheetFromKis()));
+        return edApi_json_(edApi_success_(action, refreshKrxPricesToMainSheetFromKis(request.payload)));
 
        case "fetchSingleChartData":
         return edApi_json_(

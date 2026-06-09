@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - App Status API Helper v0.8.61
+ * ED's MVP - App Status API Helper v0.8.62
  *
  * 목적:
  * - PWA 설정 탭에서 Apps Script 배포/스프레드시트 상태를 확인
@@ -12,7 +12,7 @@
  * 4) 웹앱 새 버전 배포
  *******************************************************/
 
-const ED_MVP_VERSION_TAG = "ED's MVP - App Status API Helper v0.8.61";
+const ED_MVP_VERSION_TAG = "ED's MVP - App Status API Helper v0.8.62";
 
 const ED_MVP_APP_STATUS = {
   appsScriptVersion: ED_MVP_VERSION_TAG.split(' v')[1],
