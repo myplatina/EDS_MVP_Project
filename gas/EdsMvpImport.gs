@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - Main Sheet to App Sheets Import Script v0.8.62
+ * ED's MVP - Main Sheet to App Sheets Import Script v0.8.63
  *
  * 목적:
  * - 기존 "2. 종목현황" 시트 데이터를 App_* 시트로 초기 이관
@@ -506,6 +506,8 @@ function buildAppOutputFromAppSheets() {
       priceRow.source || "",
       priceRow.fetched_at || "",
       new Date(),
+      priceRow.change_amount || 0,
+      priceRow.change_rate || 0,
     ]);
   });
 
@@ -515,13 +517,24 @@ function buildAppOutputFromAppSheets() {
     throw new Error("App_Output 시트를 찾을 수 없습니다.");
   }
 
-  const headers = outputSheet
-    .getRange(1, 1, 1, outputSheet.getLastColumn())
-    .getValues()[0];
+  const headers = [
+    "account_id", "account_name", "broker", "account_type", "asset_id", 
+    "ticker", "asset_name", "quantity", "avg_price", "price", 
+    "invested_amount", "valuation_amount", "profit_amount", "profit_rate", 
+    "account_weight", "total_weight", "target_weight_account", "target_gap_rate", 
+    "target_gap_amount", "currency", "price_source", "price_fetched_at", 
+    "updated_at", "change_amount", "change_rate"
+  ];
 
-  if (outputSheet.getLastRow() > 1) {
+  // 헤더 강제 설정 (시트에 헤더 적용)
+  outputSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  const lastRow = outputSheet.getLastRow();
+  const lastCol = outputSheet.getLastColumn();
+
+  if (lastRow > 1) {
     outputSheet
-      .getRange(2, 1, outputSheet.getLastRow() - 1, outputSheet.getLastColumn())
+      .getRange(2, 1, lastRow - 1, Math.max(lastCol, headers.length))
       .clearContent();
   }
 

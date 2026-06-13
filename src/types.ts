@@ -53,6 +53,8 @@ export type PortfolioOutputRow = {
   price_source: string;
   price_fetched_at: string;
   updated_at: string;
+  change_amount?: number;
+  change_rate?: number;
 };
 
 export type HoldingRow = {

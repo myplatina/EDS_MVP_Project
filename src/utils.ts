@@ -11,9 +11,9 @@ export function formatKRW(value: number | string | undefined | null): string {
 
 export function formatSignedKRW(value: number | string | undefined | null): string {
   const n = Number(value ?? 0);
-  if (n > 0) return `+${formatKRW(n)}`;
-  if (n < 0) return `-${formatKRW(Math.abs(n))}`;
-  return formatKRW(0);
+  if (n > 0) return `▲+${formatKRW(n).replace('₩', '').trim()}원`;
+  if (n < 0) return `▼-${formatKRW(Math.abs(n)).replace('₩', '').trim()}원`;
+  return `${formatKRW(0).replace('₩', '').trim()}원`;
 }
 
 export function formatNumber(value: number | string | undefined | null, digits = 0): string {
@@ -31,8 +31,8 @@ export function formatPercent(value: number | string | undefined | null, digits 
 export function formatSignedPercent(value: number | string | undefined | null, digits = 2): string {
   const n = Number(value ?? 0);
   const abs = Math.abs(n);
-  if (n > 0) return `+${(abs * 100).toFixed(digits)}%`;
-  if (n < 0) return `-${(abs * 100).toFixed(digits)}%`;
+  if (n > 0) return `▲+${(abs * 100).toFixed(digits)}%`;
+  if (n < 0) return `▼-${(abs * 100).toFixed(digits)}%`;
   return `${(0).toFixed(digits)}%`;
 }
 

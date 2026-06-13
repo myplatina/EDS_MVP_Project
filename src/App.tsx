@@ -558,6 +558,55 @@ function HomePage({ dashboard, summary, accountFilter, setAccountFilter, onAccou
   const riskFlags = useMemo(() => computeRiskFlags(dashboard.output), [dashboard.output]);
   const deficitCandidates = useMemo(() => computeDeficitCandidates(dashboard.output), [dashboard.output]);
 
+  // 필터링된 자산 목록 계산 (총 평가액 전일대비 지표 연산용)
+  const filteredOutput = useMemo(() => {
+    if (accountFilter === 'ALL') {
+      return dashboard.output;
+    }
+    return dashboard.output.filter((item) => item.account_id === accountFilter);
+  }, [dashboard.output, accountFilter]);
+
+  // 포트폴리오 전체(또는 필터링된 계좌)의 전일 대비 총 등락 금액 및 총 등락률 계산
+  const { totalChangeAmount, totalChangeRate } = useMemo(() => {
+    let changeAmountSum = 0;
+    filteredOutput.forEach((item) => {
+      const qty = Number(item.quantity || 0);
+      const changeAmt = Number(item.change_amount || 0);
+      changeAmountSum += changeAmt * qty;
+    });
+
+    const valuationSum = filteredOutput.reduce((sum, item) => sum + Number(item.valuation_amount || 0), 0);
+    const prevValuationSum = valuationSum - changeAmountSum;
+    const changeRate = prevValuationSum > 0 ? (changeAmountSum / prevValuationSum) : 0;
+
+    return {
+      totalChangeAmount: changeAmountSum,
+      totalChangeRate: changeRate,
+    };
+  }, [filteredOutput]);
+
+  const changeInfo = useMemo(() => {
+    const amtStr = formatNumber(Math.abs(totalChangeAmount));
+    const rateStr = (Math.abs(totalChangeRate) * 100).toFixed(2) + '%';
+    
+    if (totalChangeAmount > 0) {
+      return {
+        text: `전일대비 ▲+${amtStr}원 (+${rateStr})`,
+        className: 'positive'
+      };
+    } else if (totalChangeAmount < 0) {
+      return {
+        text: `전일대비 ▼-${amtStr}원 (-${rateStr})`,
+        className: 'negative'
+      };
+    } else {
+      return {
+        text: `전일대비 0원 (0.00%)`,
+        className: 'neutral'
+      };
+    }
+  }, [totalChangeAmount, totalChangeRate]);
+
   return (
     <section className="page-stack">
       {/* Quick Action Bar */}
@@ -568,21 +617,17 @@ function HomePage({ dashboard, summary, accountFilter, setAccountFilter, onAccou
         loading={loading}
       />
 
-      {/* Deficit Action Cards */}
-      {deficitCandidates.length > 0 && (
-        <section className="card deficit-action-card">
-          <div className="section-title">📌 추가 매수 후보 (비중 부족 -30% 초과)</div>
-          {deficitCandidates.slice(0, 3).map((c) => (
-            <DeficitCard key={`${c.item.account_id}__${c.item.asset_id}`} candidate={c} onDetail={() => onHoldingDetail(c.item)} />
-          ))}
-        </section>
-      )}
-
+      {/* 계좌 필터 */}
       <AccountFilter dashboard={dashboard} value={accountFilter} onChange={setAccountFilter} />
 
+      {/* 1) 총 평가액 카드 (TotalAssetCard) */}
       <section className="hero-card">
-        <div className="muted">종 평가액</div>
+        <div className="muted">총 평가액</div>
         <div className="hero-value">{formatKRW(summary.total_valuation)}</div>
+        {/* 고도화된 전일대비 변동성 지표 레이아웃 */}
+        <div className={`hero-change ${changeInfo.className}`} style={{ fontSize: '14px', fontWeight: 'bold', marginTop: '-8px', marginBottom: '16px' }}>
+          {changeInfo.text}
+        </div>
         <div className="summary-grid">
           <Metric label="투자원금" value={formatKRW(summary.total_invested)} />
           <Metric label="평가손익" value={formatKRW(summary.total_profit)} className={signedClass(summary.total_profit)} />
@@ -591,6 +636,7 @@ function HomePage({ dashboard, summary, accountFilter, setAccountFilter, onAccou
         </div>
       </section>
 
+      {/* 2) 전체 계좌 리스트 (AccountList) */}
       <section className="card">
         <div className="section-title">계좌별 비중</div>
         <div className="bar-list">
@@ -611,10 +657,21 @@ function HomePage({ dashboard, summary, accountFilter, setAccountFilter, onAccou
         </div>
       </section>
 
+      {/* 3) 계좌별 비중 차트/리스트 (AccountWeights) -> 상위 보유 종목 */}
       <section className="card">
         <div className="section-title">상위 보유 종목</div>
         <HoldingList rows={dashboard.top_holdings} compact onDetail={onHoldingDetail} riskFlags={riskFlags} />
       </section>
+
+      {/* 4) 추가 매수 후보 카드 (DeficitCard) - 맨 하단 이동 */}
+      {deficitCandidates.length > 0 && (
+        <section className="card deficit-action-card">
+          <div className="section-title">📌 추가 매수 후보 (비중 부족 -30% 초과)</div>
+          {deficitCandidates.slice(0, 3).map((c) => (
+            <DeficitCard key={`${c.item.account_id}__${c.item.asset_id}`} candidate={c} onDetail={() => onHoldingDetail(c.item)} />
+          ))}
+        </section>
+      )}
     </section>
   );
 }

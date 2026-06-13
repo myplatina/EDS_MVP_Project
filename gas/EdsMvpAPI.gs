@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - Web API Script v0.8.62
+ * ED's MVP - Web API Script v0.8.63
  *
  * 목적:
  * - PWA/모바일 웹앱에서 Google Sheets의 App_* 데이터를 읽고 수정하기 위한 API

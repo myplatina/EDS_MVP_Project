@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - Dividends Import + Dashboard v0.8.62
+ * ED's MVP - Dividends Import + Dashboard v0.8.63
  *
  * 목적:
  * - 기존 원장 "6. 배당내역"을 기준 데이터로 사용
