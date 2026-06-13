@@ -1,6 +1,6 @@
 import type { ApiResponse, AppConfig, AppStatus, ChartData, DashboardData, DividendDashboard, DividendRecord, HoldingRow, PortfolioOutputRow, PriceRefreshResult, RefreshLogs } from './types';
 
-export const APP_VERSION = '0.8.63';
+export const APP_VERSION = '0.8.7';
 
 const DEFAULT_API_URL = import.meta.env.VITE_EDS_API_URL || '';
 const DEFAULT_API_TOKEN = '';

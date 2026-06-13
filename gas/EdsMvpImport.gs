@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - Main Sheet to App Sheets Import Script v0.8.8
+ * ED's MVP - Main Sheet to App Sheets Import Script v0.8.7
  *
  * 목적:
  * - 기존 "2. 종목현황" 시트 데이터를 App_* 시트로 초기 이관
