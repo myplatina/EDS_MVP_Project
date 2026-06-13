@@ -1,5 +1,5 @@
 /*******************************************************
- * ED's MVP - KIS Price Refresh v0.8.63
+ * ED's MVP - KIS Price Refresh v0.8.8
  *
  * 목적:
  * 1) KIS Open API로 보유종목 전체 현재가 갱신
@@ -17,7 +17,7 @@
  *******************************************************/
 
 const ED_MVP_PRICE_REFRESH = {
-  version: '0.8.7',
+  version: '0.8.8',
   sheets: {
     appPrices: 'App_Prices',
     appOutput: 'App_Output',
